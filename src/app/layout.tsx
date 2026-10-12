@@ -22,16 +22,22 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: "wacrm",
-    template: "%s — wacrm",
+    default: "vaktel CRM",
+    template: "%s — vaktel CRM",
   },
-  description: "Self-hostable CRM template for WhatsApp.",
+  description: "vaktel WhatsApp CRM — connecting people, changing lives.",
   robots: {
     index: false,
     follow: false,
   },
   icons: {
-    icon: [{ url: "/icon" }],
+    icon: [
+      { url: "/icon.png", sizes: "48x48", type: "image/png" },
+      { url: "/logo-mark.png", sizes: "192x192", type: "image/png" },
+    ],
+    apple: [
+      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+    ],
   },
   formatDetection: {
     email: false,
