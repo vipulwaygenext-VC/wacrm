@@ -18,6 +18,8 @@ import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
+import { isCodReplyPayload } from '@/lib/shopify/cod-confirm'
+import { handleCodButtonReply } from '@/lib/shopify/cod-service'
 import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
@@ -884,6 +886,17 @@ async function processMessage(
   // no active flows take the runner's early-exit "no_match" path
   // basically for free (one indexed SELECT for the active run).
   // ============================================================
+  // Shopify COD confirmation: a Confirm/Cancel tap on the order
+  // confirmation template tags the Shopify order. Awaited so it finishes
+  // before the 200 to Meta; the handler never throws.
+  if (isCodReplyPayload(interactiveReplyId)) {
+    await handleCodButtonReply({
+      accountId,
+      conversationId: conversation.id,
+      replyId: interactiveReplyId,
+    })
+  }
+
   const flowResult = await dispatchInboundToFlows({
     accountId,
     userId: configOwnerUserId,
