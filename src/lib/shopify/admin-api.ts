@@ -118,8 +118,6 @@ export interface AdvanceOrderInfo {
   name: string
   tags: string[]
   outstanding: number
-  firstName: string | null
-  phone: string | null
 }
 
 /** What the /pay page needs to know about an order. */
@@ -130,17 +128,14 @@ export async function getOrderForAdvance(orderId: number | string): Promise<Adva
       tags: string[]
       cancelledAt: string | null
       totalOutstandingSet: { shopMoney: { amount: string } }
-      phone: string | null
-      customer: { firstName: string | null } | null
-      shippingAddress: { firstName: string | null; phone: string | null } | null
     } | null
   }>(
+    // No customer / address fields: those are protected customer data and
+    // fail for apps without that approval. The pay page doesn't need them.
     `query($id: ID!) {
       order(id: $id) {
-        name tags cancelledAt phone
+        name tags cancelledAt
         totalOutstandingSet { shopMoney { amount } }
-        customer { firstName }
-        shippingAddress { firstName phone }
       }
     }`,
     { id: orderGid(orderId) }
@@ -151,8 +146,6 @@ export async function getOrderForAdvance(orderId: number | string): Promise<Adva
     name: o.name,
     tags: o.tags,
     outstanding: Number(o.totalOutstandingSet.shopMoney.amount),
-    firstName: o.shippingAddress?.firstName ?? o.customer?.firstName ?? null,
-    phone: o.shippingAddress?.phone ?? o.phone ?? null,
   }
 }
 
