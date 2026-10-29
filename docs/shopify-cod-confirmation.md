@@ -45,18 +45,20 @@ Koi bhi sawaal ho toh humein 9278142142 par call karein.
 
 After Meta approves it, run **Settings → Templates → Sync from Meta** in the CRM.
 
-## 2. Shopify custom app
+## 2. Shopify app (Dev Dashboard)
 
-Shopify admin → Settings → Apps and sales channels → Develop apps → Create app.
-Admin API scopes: `read_orders`, `write_orders`. Install it and copy the
-Admin API access token.
+Shopify admin no longer creates legacy custom apps. Instead: Settings → Apps →
+Develop apps → **Build apps in Dev Dashboard** → Create app. Give it the Admin
+API scopes `read_orders` and `write_orders`, release a version, and install it
+on the store. From **App settings** copy the **Client ID** and **Client secret**.
 
 ## 3. Vercel environment variables
 
 | Variable | Value |
 | --- | --- |
 | `SHOPIFY_STORE_DOMAIN` | `hindrishi-ayurveda.myshopify.com` |
-| `SHOPIFY_ADMIN_TOKEN` | token from step 2 |
+| `SHOPIFY_CLIENT_ID` | Client ID from step 2 |
+| `SHOPIFY_CLIENT_SECRET` | Client secret from step 2 |
 | `SHOPIFY_WEBHOOK_SECRET` | signing secret from step 4 |
 | `SHOPIFY_WACRM_ACCOUNT_ID` | your CRM account id (Supabase `accounts.id`) |
 | `SHOPIFY_COD_TEMPLATE_NAME` | optional, default `cod_order_confirmation` |
