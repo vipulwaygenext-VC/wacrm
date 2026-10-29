@@ -19,7 +19,7 @@
 import { supabaseAdmin } from '@/lib/automations/admin-client'
 import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation'
 import { sendMessageToConversation } from '@/lib/whatsapp/send-message'
-import { updateOrderTags } from './admin-api'
+import { claimOrderOnce, updateOrderTags } from './admin-api'
 import {
   advanceApplies,
   advanceTemplateName,
@@ -121,6 +121,11 @@ export async function sendCodConfirmation(
   const cod = isCodOrder(order)
   if (!cod && !isPrepaidOrder(order)) return 'skipped_not_cod'
   if (alreadyHandled(order)) return 'skipped_already_handled'
+  // Shopify can deliver orders/create more than once; only the first
+  // delivery per order sends a message.
+  if ((await claimOrderOnce(order.id, 'confirmation_sent')) === 'taken') {
+    return 'skipped_already_handled'
+  }
 
   const accountId = await codAccountId()
   if (!accountId) {

@@ -5,7 +5,11 @@
 
 const API = 'https://api.razorpay.com/v1'
 
-export class RazorpayError extends Error {}
+export class RazorpayError extends Error {
+  constructor(message: string, readonly status?: number) {
+    super(message)
+  }
+}
 
 export interface PaymentLink {
   id: string
@@ -32,7 +36,10 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   })
   const json = (await res.json().catch(() => null)) as T & { error?: { description?: string } }
   if (!res.ok) {
-    throw new RazorpayError(`Razorpay ${res.status}: ${json?.error?.description ?? 'request failed'}`)
+    throw new RazorpayError(
+      `Razorpay ${res.status}: ${json?.error?.description ?? 'request failed'}`,
+      res.status
+    )
   }
   return json
 }

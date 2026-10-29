@@ -15,9 +15,8 @@ import {
   advanceReferenceId,
   parsePayToken,
 } from '@/lib/shopify/advance'
-import { getOrderForAdvance } from '@/lib/shopify/admin-api'
-import { normalizeIndianPhone } from '@/lib/shopify/cod-confirm'
-import { getOrCreatePaymentLink } from '@/lib/razorpay/payment-links'
+import { ShopifyApiError, getOrderForAdvance } from '@/lib/shopify/admin-api'
+import { RazorpayError, getOrCreatePaymentLink } from '@/lib/razorpay/payment-links'
 
 const HELPLINE = process.env.SHOPIFY_HELPLINE_NUMBER || '9278142142'
 
@@ -62,13 +61,10 @@ export async function GET(
       return page('Advance ki zarurat nahi', '<p>Is order par advance lagu nahi hota.</p>')
     }
 
-    const phone = normalizeIndianPhone(order.phone)
     const link = await getOrCreatePaymentLink({
       referenceId: advanceReferenceId(orderId),
       amountRupees: amount,
       description: `Advance for Hindrishi order ${order.name} (rest on delivery)`,
-      customerName: order.firstName ?? undefined,
-      customerPhone: phone ?? undefined,
       callbackUrl: `${new URL(request.url).origin}/pay/done`,
       notes: { shopify_order_id: orderId, shopify_order_name: order.name },
     })
@@ -78,6 +74,14 @@ export async function GET(
     return NextResponse.redirect(link.short_url, 302)
   } catch (err) {
     console.error('[pay] advance link failed:', err)
-    return page('Thodi der baad try karein', '<p>Abhi payment page khul nahi raha.</p>', 502)
+    // A short, non-secret code so support can tell where it failed.
+    const code =
+      err instanceof RazorpayError ? `R${err.status ?? ''}` :
+      err instanceof ShopifyApiError ? 'S' : 'X'
+    return page(
+      'Thodi der baad try karein',
+      `<p>Abhi payment page khul nahi raha.</p><p style="color:#8a8f8a;font-size:12px">Code: ${code}</p>`,
+      502
+    )
   }
 }
