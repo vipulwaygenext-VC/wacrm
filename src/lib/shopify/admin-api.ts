@@ -118,6 +118,8 @@ export interface AdvanceOrderInfo {
   name: string
   tags: string[]
   outstanding: number
+  /** Shipping charged on the order (e.g. the ₹49 COD charge). */
+  shipping: number
 }
 
 /** What the /pay page needs to know about an order. */
@@ -128,6 +130,7 @@ export async function getOrderForAdvance(orderId: number | string): Promise<Adva
       tags: string[]
       cancelledAt: string | null
       totalOutstandingSet: { shopMoney: { amount: string } }
+      totalShippingPriceSet: { shopMoney: { amount: string } }
     } | null
   }>(
     // No customer / address fields: those are protected customer data and
@@ -136,6 +139,7 @@ export async function getOrderForAdvance(orderId: number | string): Promise<Adva
       order(id: $id) {
         name tags cancelledAt
         totalOutstandingSet { shopMoney { amount } }
+        totalShippingPriceSet { shopMoney { amount } }
       }
     }`,
     { id: orderGid(orderId) }
@@ -146,6 +150,7 @@ export async function getOrderForAdvance(orderId: number | string): Promise<Adva
     name: o.name,
     tags: o.tags,
     outstanding: Number(o.totalOutstandingSet.shopMoney.amount),
+    shipping: Number(o.totalShippingPriceSet.shopMoney.amount),
   }
 }
 
@@ -214,4 +219,101 @@ export async function claimOrderOnce(orderId: number | string, key: string): Pro
     console.error(`[shopify] claim ${key} on ${orderId} failed:`, err)
     return 'unknown'
   }
+}
+
+/** Upsert a `wacrm.<key>` metafield on an order (last write wins). */
+export async function setOrderMetafield(
+  orderId: number | string,
+  key: string,
+  value: string
+): Promise<void> {
+  const data = await shopifyGraphql<{
+    metafieldsSet: { userErrors: { message: string }[] }
+  }>(
+    `mutation($m: [MetafieldsSetInput!]!) {
+      metafieldsSet(metafields: $m) { userErrors { field message } }
+    }`,
+    {
+      m: [{ ownerId: orderGid(orderId), namespace: 'wacrm', key, type: 'single_line_text_field', value }],
+    }
+  )
+  const errs = data.metafieldsSet.userErrors
+  if (errs.length) throw new ShopifyApiError(errs.map((e) => e.message).join('; '))
+}
+
+export interface DelayCandidate {
+  id: string
+  name: string
+  tags: string[]
+  outstanding: number
+  total: number
+  shipping: number
+  productTitle: string
+  conversationId: string | null
+}
+
+/**
+ * Open, unfulfilled orders created in [olderThan - 1 day, olderThan],
+ * not yet reminded. Reads the conversation id we stored when the
+ * confirmation went out (no protected customer data needed).
+ */
+export async function findDelayCandidates(
+  olderThanDays: number,
+  skipTag: string
+): Promise<DelayCandidate[]> {
+  const day = 24 * 60 * 60 * 1000
+  const to = new Date(Date.now() - olderThanDays * day)
+  const from = new Date(to.getTime() - day)
+  const q =
+    `status:open fulfillment_status:unfulfilled -tag:'${skipTag}' ` +
+    `created_at:>='${from.toISOString()}' created_at:<='${to.toISOString()}'`
+  const out: DelayCandidate[] = []
+  let after: string | null = null
+  for (let page = 0; page < 10; page++) {
+    const data: {
+      orders: {
+        pageInfo: { hasNextPage: boolean; endCursor: string | null }
+        nodes: {
+          id: string
+          name: string
+          tags: string[]
+          totalOutstandingSet: { shopMoney: { amount: string } }
+          totalPriceSet: { shopMoney: { amount: string } }
+          totalShippingPriceSet: { shopMoney: { amount: string } }
+          lineItems: { nodes: { title: string }[] }
+          metafield: { value: string } | null
+        }[]
+      }
+    } = await shopifyGraphql(
+      `query($q: String!, $after: String) {
+        orders(first: 50, after: $after, query: $q) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            id name tags
+            totalOutstandingSet { shopMoney { amount } }
+            totalPriceSet { shopMoney { amount } }
+            totalShippingPriceSet { shopMoney { amount } }
+            lineItems(first: 1) { nodes { title } }
+            metafield(namespace: "wacrm", key: "conversation_id") { value }
+          }
+        }
+      }`,
+      { q, after }
+    )
+    for (const n of data.orders.nodes) {
+      out.push({
+        id: n.id.split('/').pop()!,
+        name: n.name,
+        tags: n.tags,
+        outstanding: Number(n.totalOutstandingSet.shopMoney.amount),
+        total: Number(n.totalPriceSet.shopMoney.amount),
+        shipping: Number(n.totalShippingPriceSet.shopMoney.amount),
+        productTitle: n.lineItems.nodes[0]?.title ?? 'Your order',
+        conversationId: n.metafield?.value ?? null,
+      })
+    }
+    if (!data.orders.pageInfo.hasNextPage) break
+    after = data.orders.pageInfo.endCursor
+  }
+  return out
 }

@@ -17,6 +17,7 @@
 import crypto from 'node:crypto'
 
 export const ADVANCE_TAG = 'WA-Advance-Paid'
+export const FULL_PAID_TAG = 'WA-Full-Paid'
 export const DEFAULT_ADVANCE_AMOUNT = 100
 
 export function advanceAmount(): number {
@@ -30,6 +31,24 @@ export function isAdvanceEnabled(): boolean {
 
 export function advanceTemplateName(): string {
   return process.env.SHOPIFY_COD_ADVANCE_TEMPLATE_NAME || 'cod_order_advance'
+}
+
+/**
+ * The prepay-first template (Pay ₹100 / Pay Full / Need Help / Cancel).
+ * Set SHOPIFY_COD_PREPAY_TEMPLATE_NAME to "off" to keep sending the
+ * older advance template.
+ */
+export function prepayTemplateName(): string | null {
+  const v = process.env.SHOPIFY_COD_PREPAY_TEMPLATE_NAME
+  if (v === 'off') return null
+  return v || 'cod_order_prepay'
+}
+
+export type PayKind = 'advance' | 'full'
+
+/** Public pay links for an order (the token is per order, signed). */
+export function payLinks(origin: string, token: string) {
+  return { advance: `${origin}/pay/${token}`, full: `${origin}/pay/f/${token}` }
 }
 
 /** Advance only makes sense when the order costs more than the advance. */
@@ -79,11 +98,11 @@ export function verifyRazorpaySignature(
 }
 
 /** Razorpay's reference_id for an order's advance link (unique per order). */
-export function advanceReferenceId(orderId: number | string): string {
-  return `shopify_${orderId}`
+export function advanceReferenceId(orderId: number | string, kind: PayKind = 'advance'): string {
+  return kind === 'full' ? `shopify_${orderId}_full` : `shopify_${orderId}`
 }
 
 export function orderIdFromReference(ref: string | null | undefined): string | null {
-  const m = /^shopify_(\d+)(?:_\d+)?$/.exec(ref ?? '')
+  const m = /^shopify_(\d+)(?:_full)?(?:_\d+)?$/.exec(ref ?? '')
   return m ? m[1] : null
 }

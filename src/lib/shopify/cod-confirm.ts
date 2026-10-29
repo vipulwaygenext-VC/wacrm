@@ -15,13 +15,15 @@ import crypto from 'node:crypto'
 /** Prefix that marks a button payload as ours. */
 export const COD_PAYLOAD_PREFIX = 'shopify_cod'
 
-export type CodAction = 'confirm' | 'cancel'
+export type CodAction = 'confirm' | 'cancel' | 'help'
 
 /** Order tags written back to Shopify. */
 export const COD_TAGS = {
   sent: 'WA-Sent',
   confirmed: 'WA-Confirmed',
   cancelled: 'WA-Cancelled',
+  cancelRequested: 'WA-Cancel-Requested',
+  help: 'WA-Help',
   noPhone: 'WA-No-Phone',
   sendFailed: 'WA-Send-Failed',
 } as const
@@ -37,6 +39,7 @@ export interface ShopifyOrderPayload {
   tags?: string
   phone?: string | null
   line_items?: { title?: string; quantity?: number }[]
+  shipping_lines?: { price?: string; title?: string }[]
   customer?: { first_name?: string | null; phone?: string | null } | null
   shipping_address?: { first_name?: string | null; phone?: string | null } | null
   billing_address?: { first_name?: string | null; phone?: string | null } | null
@@ -56,7 +59,10 @@ export function parseReplyPayload(
 ): { action: CodAction; orderId: string } | null {
   if (!isCodReplyPayload(value)) return null
   const [, action, orderId] = value!.split(':')
-  if ((action !== 'confirm' && action !== 'cancel') || !/^\d+$/.test(orderId ?? '')) {
+  if (
+    (action !== 'confirm' && action !== 'cancel' && action !== 'help') ||
+    !/^\d+$/.test(orderId ?? '')
+  ) {
     return null
   }
   return { action, orderId }
@@ -188,6 +194,45 @@ export function buildAdvanceTemplateParams(
   return {
     body: [...base.body, remaining],
     buttonParams: { ...base.buttonParams, 2: payToken } as Record<number, string>,
+  }
+}
+
+/** Sum of the order's shipping lines (e.g. the ₹49 COD charge). */
+export function shippingTotal(order: ShopifyOrderPayload): number {
+  return (order.shipping_lines ?? []).reduce((sum, l) => {
+    const n = Number(l.price ?? 0)
+    return sum + (Number.isFinite(n) ? n : 0)
+  }, 0)
+}
+
+function rupees(n: number): string {
+  return Number.isInteger(n) ? String(n) : n.toFixed(2)
+}
+
+/**
+ * Params for the prepay-first COD template (`cod_order_prepay`):
+ *   body {{1}} name · {{2}} order number · {{3}} product · {{4}} total
+ *        {{5}} left to pay on delivery after the advance
+ *        {{6}} full-payment amount (total minus shipping/COD charge)
+ *   buttons 0 = URL Pay ₹100 Advance, 1 = URL Pay Full – Free Shipping,
+ *           2 = Need Help, 3 = Cancel Order (quick replies)
+ */
+export function buildPrepayTemplateParams(
+  order: ShopifyOrderPayload,
+  remaining: string,
+  payToken: string
+) {
+  const base = buildTemplateParams(order)
+  const total = Number(order.total_price ?? 0)
+  const full = Math.max(1, total - shippingTotal(order))
+  return {
+    body: [...base.body, remaining, rupees(full)],
+    buttonParams: {
+      0: payToken,
+      1: payToken,
+      2: buildReplyPayload('help', order.id),
+      3: buildReplyPayload('cancel', order.id),
+    } as Record<number, string>,
   }
 }
 

@@ -14,17 +14,22 @@
 //   SHOPIFY_COD_TEMPLATE_LANGUAGE   default: en (also used for prepaid)
 //   SHOPIFY_PREPAID_TEMPLATE_NAME   default: prepaid_order_confirmation
 //   SHOPIFY_HELPLINE_NUMBER         default: 9278142142
+//   PUBLIC_APP_URL                  base URL for pay links in chat replies
+//                                   (default: Vercel production URL)
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/automations/admin-client'
 import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation'
 import { sendMessageToConversation } from '@/lib/whatsapp/send-message'
-import { claimOrderOnce, updateOrderTags } from './admin-api'
+import { claimOrderOnce, getOrderForAdvance, setOrderMetafield, updateOrderTags } from './admin-api'
 import {
+  advanceAmount,
   advanceApplies,
   advanceTemplateName,
   buildPayToken,
   isAdvanceEnabled,
+  payLinks,
+  prepayTemplateName,
   remainingAfterAdvance,
 } from './advance'
 import {
@@ -33,6 +38,7 @@ import {
   alreadyHandled,
   buildAdvanceTemplateParams,
   buildPrepaidTemplateParams,
+  buildPrepayTemplateParams,
   buildTemplateParams,
   customerFirstName,
   extractOrderPhone,
@@ -86,33 +92,53 @@ export async function codAccountId(): Promise<string | null> {
   return cachedAccountId
 }
 
-/** Which template to send, and its params. */
-function templateFor(order: ShopifyOrderPayload, cod: boolean) {
+interface TemplateChoice {
+  templateName: string
+  templateLanguage: string
+  templateMessageParams: { body: string[]; buttonParams?: Record<number, string> }
+}
+
+/**
+ * Templates to try, best first. A newer template that Meta hasn't
+ * approved yet (or that was paused) fails the send, so the next one is
+ * tried — rolling out a new template never stops confirmations.
+ */
+export function templateChoices(order: ShopifyOrderPayload, cod: boolean): TemplateChoice[] {
   const language = templateLanguage()
   if (!cod) {
-    return {
-      templateName: prepaidTemplateName(),
-      templateLanguage: language,
-      templateMessageParams: buildPrepaidTemplateParams(order),
-    }
+    return [
+      {
+        templateName: prepaidTemplateName(),
+        templateLanguage: language,
+        templateMessageParams: buildPrepaidTemplateParams(order),
+      },
+    ]
   }
   const total = Number(order.total_price ?? 0)
+  const choices: TemplateChoice[] = []
   if (isAdvanceEnabled() && advanceApplies(total)) {
-    return {
+    const token = buildPayToken(order.id, process.env.RAZORPAY_KEY_SECRET!)
+    const remaining = remainingAfterAdvance(total)
+    const prepay = prepayTemplateName()
+    if (prepay) {
+      choices.push({
+        templateName: prepay,
+        templateLanguage: language,
+        templateMessageParams: buildPrepayTemplateParams(order, remaining, token),
+      })
+    }
+    choices.push({
       templateName: advanceTemplateName(),
       templateLanguage: language,
-      templateMessageParams: buildAdvanceTemplateParams(
-        order,
-        remainingAfterAdvance(total),
-        buildPayToken(order.id, process.env.RAZORPAY_KEY_SECRET!)
-      ),
-    }
+      templateMessageParams: buildAdvanceTemplateParams(order, remaining, token),
+    })
   }
-  return {
+  choices.push({
     templateName: templateName(),
     templateLanguage: language,
     templateMessageParams: buildTemplateParams(order),
-  }
+  })
+  return choices
 }
 
 export async function sendCodConfirmation(
@@ -141,6 +167,7 @@ export async function sendCodConfirmation(
   }
 
   const supabase = supabaseAdmin()
+  let conversationId: string
   try {
     const resolved = await resolveConversationByPhone(
       supabase,
@@ -148,16 +175,29 @@ export async function sendCodConfirmation(
       phone,
       customerFirstName(order)
     )
-    await sendMessageToConversation(supabase, accountId, {
-      conversationId: resolved.conversationId,
-      messageType: 'template',
-      contentText: null,
-      mediaUrl: null,
-      filename: null,
-      ...templateFor(order, cod),
-      interactivePayload: null,
-      replyToMessageId: null,
-    })
+    conversationId = resolved.conversationId
+    let lastErr: unknown = null
+    let sent = false
+    for (const choice of templateChoices(order, cod)) {
+      try {
+        await sendMessageToConversation(supabase, accountId, {
+          conversationId,
+          messageType: 'template',
+          contentText: null,
+          mediaUrl: null,
+          filename: null,
+          ...choice,
+          interactivePayload: null,
+          replyToMessageId: null,
+        })
+        sent = true
+        break
+      } catch (err) {
+        lastErr = err
+        console.warn(`[shopify-cod] template ${choice.templateName} failed, trying next:`, err)
+      }
+    }
+    if (!sent) throw lastErr
   } catch (err) {
     console.error(`[shopify-cod] send failed for order ${order.name ?? order.id}:`, err)
     await updateOrderTags(order.id, [COD_TAGS.sendFailed]).catch(() => {})
@@ -166,14 +206,57 @@ export async function sendCodConfirmation(
 
   // Prepaid orders need no reply, so they go straight to Confirmed.
   await updateOrderTags(order.id, [cod ? COD_TAGS.sent : COD_TAGS.confirmed])
+  // Remember the chat for later reminders (no protected customer data).
+  await setOrderMetafield(order.id, 'conversation_id', conversationId).catch((e) =>
+    console.error('[shopify-cod] storing conversation id failed:', e)
+  )
   return cod ? 'sent' : 'sent_prepaid'
 }
 
-function replyText(action: 'confirm' | 'cancel'): string {
+export function appOrigin(): string {
+  const explicit = process.env.PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL
+  if (explicit) return explicit.replace(/\/$/, '')
+  const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL
+  return vercel ? `https://${vercel}` : 'https://wacrm-zwrx-1.vercel.app'
+}
+
+/** Pay links for an order, or null when Razorpay isn't configured. */
+function orderPayLinks(orderId: string) {
+  const secret = process.env.RAZORPAY_KEY_SECRET
+  if (!isAdvanceEnabled() || !secret) return null
+  return payLinks(appOrigin(), buildPayToken(orderId, secret))
+}
+
+/**
+ * The scripted first reply to a button tap. Includes the order's pay
+ * links so the customer can act right away and so the AI agent (which
+ * reads this text as context) can repeat them.
+ */
+export function replyText(
+  action: 'confirm' | 'cancel' | 'help',
+  orderName: string,
+  links: { advance: string; full: string } | null
+): string {
   const help = `Koi bhi sawaal ho toh humein ${helpline()} par call karein.`
-  return action === 'confirm'
-    ? `Dhanyavaad! Aapka order confirm ho gaya hai. Hum ise jaldi dispatch karenge aur tracking link WhatsApp par bhejenge. ${help}`
-    : `Aapka order cancel request mil gaya hai. Agar galti se cancel hua ho, toh yahin reply karke humein bata dijiye. ${help}`
+  const pay = links
+    ? `\n\n💳 ₹${advanceAmount()} advance (baaki delivery par): ${links.advance}` +
+      `\n🚚 Poora payment + FREE shipping: ${links.full}` +
+      `\n🔒 Payment Razorpay ke secure page par, Hindrishi ke naam se. Hum kabhi OTP/PIN nahi maangte.`
+    : ''
+  if (action === 'confirm') {
+    return `Dhanyavaad! Aapka order ${orderName} confirm ho gaya hai. Hum ise jaldi dispatch karenge aur tracking link WhatsApp par bhejenge. ${help}`
+  }
+  if (action === 'help') {
+    return (
+      `Ji zaroor! Order ${orderName} ke baare mein aap kuch bhi pooch sakte hain — product, use karne ka tareeka, delivery ya payment. ` +
+      `Hindi, English ya apni bhasha mein likhiye.${pay}\n\n${help}`
+    )
+  }
+  return (
+    `Order ${orderName} cancel karne se pehle ek baar bata dijiye — koi problem hai? Hum madad kar sakte hain. ` +
+    `Abhi orders bahut zyada hain, isliye hum confirmed (prepaid / ₹${advanceAmount()} advance) orders pehle dispatch kar rahe hain.${pay}` +
+    `\n\nAgar phir bhi cancel karna hai, toh bas "cancel" likh dijiye.`
+  )
 }
 
 /**
@@ -193,20 +276,25 @@ export async function handleCodButtonReply(params: {
   try {
     if (parsed.action === 'confirm') {
       await updateOrderTags(parsed.orderId, [COD_TAGS.confirmed], [COD_TAGS.sent, COD_TAGS.cancelled])
+    } else if (parsed.action === 'help') {
+      await updateOrderTags(parsed.orderId, [COD_TAGS.help])
     } else {
-      await updateOrderTags(parsed.orderId, [COD_TAGS.cancelled], [COD_TAGS.sent, COD_TAGS.confirmed])
+      // A cancel tap opens a conversation (the AI agent tries once to save
+      // the order); the order is cancelled only if they still insist.
+      await updateOrderTags(parsed.orderId, [COD_TAGS.cancelRequested])
     }
   } catch (err) {
     console.error(`[shopify-cod] tagging order ${parsed.orderId} failed:`, err)
   }
 
+  const orderName = await orderNameFor(parsed.orderId)
   // The customer just messaged us, so a free-form reply is inside the
   // 24-hour service window.
   try {
     await sendMessageToConversation(supabaseAdmin(), params.accountId, {
       conversationId: params.conversationId,
       messageType: 'text',
-      contentText: replyText(parsed.action),
+      contentText: replyText(parsed.action, orderName, parsed.action === 'confirm' ? null : orderPayLinks(parsed.orderId)),
       mediaUrl: null,
       filename: null,
       templateName: null,
@@ -218,4 +306,14 @@ export async function handleCodButtonReply(params: {
     console.error('[shopify-cod] acknowledgement send failed:', err)
   }
   return true
+}
+
+async function orderNameFor(orderId: string): Promise<string> {
+  try {
+    const o = await getOrderForAdvance(orderId)
+    if (o) return o.name
+  } catch {
+    // fall through
+  }
+  return `#${orderId}`
 }

@@ -8,7 +8,12 @@
 // ============================================================
 
 import { NextResponse } from 'next/server'
-import { ADVANCE_TAG, orderIdFromReference, verifyRazorpaySignature } from '@/lib/shopify/advance'
+import {
+  ADVANCE_TAG,
+  FULL_PAID_TAG,
+  orderIdFromReference,
+  verifyRazorpaySignature,
+} from '@/lib/shopify/advance'
 import { getOrderForAdvance, recordManualPayment, updateOrderTags } from '@/lib/shopify/admin-api'
 
 interface PaymentLinkPaidEvent {
@@ -47,22 +52,39 @@ export async function POST(request: Request) {
 
   const link = event.payload?.payment_link?.entity
   const orderId = link?.notes?.shopify_order_id || orderIdFromReference(link?.reference_id)
+  const full = link?.notes?.kind === 'full' || /_full(?:_\d+)?$/.test(link?.reference_id ?? '')
+  const tag = full ? FULL_PAID_TAG : ADVANCE_TAG
   const paise = event.payload?.payment?.entity?.amount ?? link?.amount_paid ?? 0
   if (!orderId || !paise) return NextResponse.json({ outcome: 'not_ours' })
 
   try {
     const order = await getOrderForAdvance(orderId)
     if (!order) return NextResponse.json({ outcome: 'order_missing' })
-    if (order.tags.includes(ADVANCE_TAG)) return NextResponse.json({ outcome: 'already_recorded' })
+    if (order.tags.includes(tag)) return NextResponse.json({ outcome: 'already_recorded' })
 
     // Tag first so a retry can never record the payment twice; undo the
     // tag if recording fails so the retry tries again.
-    await updateOrderTags(orderId, [ADVANCE_TAG])
+    await updateOrderTags(orderId, [tag])
     try {
-      await recordManualPayment(orderId, paise / 100, 'Razorpay advance (WhatsApp)')
+      await recordManualPayment(
+        orderId,
+        paise / 100,
+        full ? 'Razorpay full payment (WhatsApp)' : 'Razorpay advance (WhatsApp)'
+      )
     } catch (err) {
-      await updateOrderTags(orderId, [], [ADVANCE_TAG]).catch(() => {})
+      await updateOrderTags(orderId, [], [tag]).catch(() => {})
       throw err
+    }
+    if (full) {
+      // Free shipping: the paid amount excluded the shipping / COD charge,
+      // so settle what's left (at most that charge) as waived. This makes
+      // the order fully paid, so it ships as prepaid.
+      const after = await getOrderForAdvance(orderId).catch(() => null)
+      if (after && after.outstanding > 0 && after.outstanding <= after.shipping + 0.01) {
+        await recordManualPayment(orderId, after.outstanding, 'COD/shipping charge waived (prepaid)').catch(
+          (err) => console.error(`[razorpay] waiving shipping on ${orderId} failed:`, err)
+        )
+      }
     }
     return NextResponse.json({ outcome: 'recorded' })
   } catch (err) {
