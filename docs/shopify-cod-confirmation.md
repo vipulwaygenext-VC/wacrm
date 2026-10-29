@@ -23,7 +23,7 @@ In the CRM, create (or in WhatsApp Manager) a **Utility** template named
 `cod_order_confirmation`, language `en`:
 
 ```
-Namaste {{1}}, Hindrishi Ayurveda par aapka order #{{2}} mil gaya hai.
+Namaste {{1}}, Hindrishi par aapka order #{{2}} mil gaya hai.
 Product: {{3}}
 Amount: ₹{{4}} (Cash on Delivery)
 Kripya neeche button dabakar confirm karein, taaki hum aaj hi dispatch kar sakein.
@@ -36,7 +36,7 @@ And a second **Utility** template named `prepaid_order_confirmation`, language
 `en`, with no buttons:
 
 ```
-Namaste {{1}}, Hindrishi Ayurveda par aapka order #{{2}} confirm ho gaya hai.
+Namaste {{1}}, Hindrishi par aapka order #{{2}} confirm ho gaya hai.
 Product: {{3}}
 Amount: ₹{{4}} (Paid)
 Hum ise jaldi dispatch karenge aur tracking link WhatsApp par bhejenge.
