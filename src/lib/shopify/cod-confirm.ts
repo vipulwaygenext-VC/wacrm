@@ -175,6 +175,23 @@ export function buildTemplateParams(order: ShopifyOrderPayload) {
 }
 
 /**
+ * Params for the COD template with an advance-payment link:
+ *   body {{1}}-{{4}} as above · {{5}} amount left to pay on delivery
+ *   button 0 = Confirm, 1 = Cancel, 2 = URL "Pay ₹100 Advance" (suffix = pay token)
+ */
+export function buildAdvanceTemplateParams(
+  order: ShopifyOrderPayload,
+  remaining: string,
+  payToken: string
+) {
+  const base = buildTemplateParams(order)
+  return {
+    body: [...base.body, remaining],
+    buttonParams: { ...base.buttonParams, 2: payToken } as Record<number, string>,
+  }
+}
+
+/**
  * Params for the prepaid confirmation template (no buttons):
  *   body {{1}} name · {{2}} order number · {{3}} product · {{4}} amount
  */

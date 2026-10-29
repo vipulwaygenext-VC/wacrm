@@ -113,3 +113,69 @@ export async function updateOrderTags(
     )
   }
 }
+
+export interface AdvanceOrderInfo {
+  name: string
+  tags: string[]
+  outstanding: number
+  firstName: string | null
+  phone: string | null
+}
+
+/** What the /pay page needs to know about an order. */
+export async function getOrderForAdvance(orderId: number | string): Promise<AdvanceOrderInfo | null> {
+  const data = await shopifyGraphql<{
+    order: {
+      name: string
+      tags: string[]
+      cancelledAt: string | null
+      totalOutstandingSet: { shopMoney: { amount: string } }
+      phone: string | null
+      customer: { firstName: string | null } | null
+      shippingAddress: { firstName: string | null; phone: string | null } | null
+    } | null
+  }>(
+    `query($id: ID!) {
+      order(id: $id) {
+        name tags cancelledAt phone
+        totalOutstandingSet { shopMoney { amount } }
+        customer { firstName }
+        shippingAddress { firstName phone }
+      }
+    }`,
+    { id: orderGid(orderId) }
+  )
+  const o = data.order
+  if (!o || o.cancelledAt) return null
+  return {
+    name: o.name,
+    tags: o.tags,
+    outstanding: Number(o.totalOutstandingSet.shopMoney.amount),
+    firstName: o.shippingAddress?.firstName ?? o.customer?.firstName ?? null,
+    phone: o.shippingAddress?.phone ?? o.phone ?? null,
+  }
+}
+
+/** Record money received outside checkout (reduces the COD amount due). */
+export async function recordManualPayment(
+  orderId: number | string,
+  amountRupees: number,
+  methodName: string
+): Promise<void> {
+  const data = await shopifyGraphql<{
+    orderCreateManualPayment: { userErrors: { message: string }[] }
+  }>(
+    `mutation($id: ID!, $amount: MoneyInput!, $method: String) {
+      orderCreateManualPayment(id: $id, amount: $amount, paymentMethodName: $method) {
+        userErrors { field message }
+      }
+    }`,
+    {
+      id: orderGid(orderId),
+      amount: { amount: amountRupees.toFixed(2), currencyCode: 'INR' },
+      method: methodName,
+    }
+  )
+  const errs = data.orderCreateManualPayment.userErrors
+  if (errs.length) throw new ShopifyApiError(errs.map((e) => e.message).join('; '))
+}
