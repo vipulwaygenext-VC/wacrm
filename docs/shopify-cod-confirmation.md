@@ -122,3 +122,51 @@ Secret), and Webhooks → Add webhook URL
 | `RAZORPAY_WEBHOOK_SECRET` | the webhook secret you chose |
 | `SHOPIFY_ADVANCE_AMOUNT` | optional, default `100` |
 | `SHOPIFY_COD_ADVANCE_TEMPLATE_NAME` | optional, default `cod_order_advance` |
+
+## Phase 2: prepay-first COD, AI agent, alerts, delay reminders
+
+### Templates (all Utility, `en`)
+
+`cod_order_prepay`. Body variables: {{1}} name, {{2}} order number,
+{{3}} product, {{4}} total, {{5}} left to pay on delivery after the ₹100
+advance, {{6}} full-payment amount (COD charge removed). Buttons in this
+order: Visit website `Pay ₹100 Advance` →
+`https://wacrm-zwrx-1.vercel.app/pay/{{1}}`; Visit website
+`Pay Full – Free Shipping` → `https://wacrm-zwrx-1.vercel.app/pay/f/{{1}}`;
+Quick reply `Need Help`; Quick reply `Cancel Order`. Set
+`SHOPIFY_COD_PREPAY_TEMPLATE_NAME=off` to fall back to `cod_order_advance`.
+
+`staff_alert` (sent to `STAFF_ALERT_NUMBER`): {{1}} customer name,
+{{2}} customer phone, {{3}} what happened.
+
+`order_delay_paid`: {{1}} name, {{2}} order number, {{3}} product.
+
+`order_delay_unpaid`: {{1}} name, {{2}} order number, {{3}} product,
+{{4}} left to pay on delivery after the advance. Buttons: the same two pay
+URLs, then Quick reply `Cancel Order`.
+
+### Behaviour
+
+- **Pay Full** charges the outstanding amount minus the shipping / COD
+  charge, records it as a manual payment, settles the waived charge, and
+  tags `WA-Full-Paid`.
+- **Need Help** / **Cancel Order** taps reply with a scripted message that
+  includes both pay links (tags `WA-Help` / `WA-Cancel-Requested`). The
+  customer's next messages go to the AI agent. When the agent ends a reply
+  with `[[CANCEL_ORDER]]` the order is tagged `WA-Cancelled`; the order is
+  taken from the signed pay link in the chat, never from the model text.
+- A **photo or document** from a customer gets an acknowledgement, pauses
+  the bot on that chat and alerts the office number. AI hand-offs alert
+  the office too.
+- **Delay reminders** run daily at 11:00 IST (`vercel.json`) for orders
+  unfulfilled for `ORDER_DELAY_DAYS` (default 3), once per order
+  (`WA-Delay-Sent`).
+- **Gemini**: choose provider OpenAI in AI settings, paste a Gemini key and
+  use model `gemini-flash-latest`; requests go to Google's
+  OpenAI-compatible endpoint.
+
+| Variable | Value |
+| --- | --- |
+| `STAFF_ALERT_NUMBER` | office WhatsApp number (alerts are off when unset) |
+| `CRON_SECRET` | any long random string; Vercel uses it to call the cron |
+| `ORDER_DELAY_DAYS` | optional, default `3` |

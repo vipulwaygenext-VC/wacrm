@@ -19,7 +19,8 @@ import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import { isCodReplyPayload } from '@/lib/shopify/cod-confirm'
-import { handleCodButtonReply } from '@/lib/shopify/cod-service'
+import { codAccountId, handleCodButtonReply } from '@/lib/shopify/cod-service'
+import { handleInboundReport } from '@/lib/shopify/chat-actions'
 import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
@@ -989,6 +990,21 @@ async function processMessage(
       // Lets the bot show "typing…" (and mark the message read) while
       // the reply is generated.
       inboundMessageId: message.id,
+    })
+  }
+
+  // A photo / document (often a medical report) from a customer of the
+  // Shopify-linked account: acknowledge, pause the bot, alert the office.
+  if (
+    !flowConsumed &&
+    (message.type === 'image' || message.type === 'document') &&
+    (await codAccountId()) === accountId
+  ) {
+    await handleInboundReport(supabaseAdmin(), {
+      accountId,
+      conversationId: conversation.id,
+      contactId: contactRecord.id,
+      kind: message.type === 'image' ? 'photo' : 'document',
     })
   }
 

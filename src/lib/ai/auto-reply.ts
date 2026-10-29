@@ -13,6 +13,11 @@ import {
 } from '@/lib/flows/meta-send'
 import { sendTypingIndicator } from '@/lib/whatsapp/meta-api'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+import {
+  alertStaff,
+  cancelOrderFromChat,
+  extractCancel,
+} from '@/lib/shopify/chat-actions'
 
 interface DispatchArgs {
   /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
@@ -136,11 +141,24 @@ export async function dispatchInboundToAiReply(
       knowledge,
     })
 
-    const { text, handoff, usage } = await generateReply({
+    const generated = await generateReply({
       config,
       systemPrompt,
       messages,
     })
+    const { handoff, usage } = generated
+    // Order action: the business prompt lets the model end a reply with
+    // [[CANCEL_ORDER]] once the customer insists on cancelling. The
+    // order comes from this conversation's signed pay link, never from
+    // the model's text.
+    const { text: replyText, cancel } = extractCancel(generated.text)
+    let text = replyText
+    if (cancel && !handoff) {
+      const cancelled = await cancelOrderFromChat(db, conversationId)
+      if (cancelled && !text) {
+        text = `Aapka order ${cancelled} cancel kar diya gaya hai. Kabhi bhi zaroorat ho toh hum yahin hain. 🙏`
+      }
+    }
 
     // Record token spend on the account's BYO key. Fire-and-forget so it
     // never adds latency to the customer-facing send: `logAiUsage`
@@ -178,6 +196,7 @@ export async function dispatchInboundToAiReply(
         update.assigned_agent_id = config.handoffAgentId
       }
       await db.from('conversations').update(update).eq('id', conversationId)
+      await alertStaff(db, accountId, contactId, `AI ne chat team ko di: ${summary}`)
       return
     }
 
