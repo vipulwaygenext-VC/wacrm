@@ -62,12 +62,21 @@ export function parseReplyPayload(
   return { action, orderId }
 }
 
-/** Cash-on-delivery orders are the ones worth confirming. */
+/** Customer helpline mentioned in every order message. */
+export const DEFAULT_HELPLINE = '9278142142'
+
+/** Cash-on-delivery orders get Confirm / Cancel buttons. */
 export function isCodOrder(order: ShopifyOrderPayload): boolean {
   const gateways = order.payment_gateway_names ?? []
   if (gateways.some((g) => /cash on delivery|\bcod\b/i.test(g))) return true
   // Partially-paid / unpaid orders with no gateway are treated as COD too.
   return gateways.length === 0 && order.financial_status === 'pending'
+}
+
+/** Orders already paid online get a plain confirmation (no buttons). */
+export function isPrepaidOrder(order: ShopifyOrderPayload): boolean {
+  if (isCodOrder(order)) return false
+  return ['paid', 'authorized', 'partially_paid'].includes(order.financial_status ?? '')
 }
 
 export function orderTags(order: ShopifyOrderPayload): string[] {
@@ -163,6 +172,14 @@ export function buildTemplateParams(order: ShopifyOrderPayload) {
       1: buildReplyPayload('cancel', order.id),
     } as Record<number, string>,
   }
+}
+
+/**
+ * Params for the prepaid confirmation template (no buttons):
+ *   body {{1}} name · {{2}} order number · {{3}} product · {{4}} amount
+ */
+export function buildPrepaidTemplateParams(order: ShopifyOrderPayload) {
+  return { body: buildTemplateParams(order).body }
 }
 
 /** Verify Shopify's `X-Shopify-Hmac-Sha256` header (base64 HMAC of the raw body). */

@@ -3,9 +3,11 @@ import { describe, expect, it } from 'vitest'
 import {
   alreadyHandled,
   buildReplyPayload,
+  buildPrepaidTemplateParams,
   buildTemplateParams,
   extractOrderPhone,
   isCodOrder,
+  isPrepaidOrder,
   normalizeIndianPhone,
   parseReplyPayload,
   productSummary,
@@ -96,5 +98,26 @@ describe('verifyShopifyHmac', () => {
     expect(verifyShopifyHmac(body, sig, 'other')).toBe(false)
     expect(verifyShopifyHmac(body, sig, undefined)).toBe(false)
     expect(verifyShopifyHmac(body, null, 's3cret')).toBe(false)
+  })
+})
+
+describe('prepaid orders', () => {
+  const prepaid: ShopifyOrderPayload = {
+    ...order,
+    payment_gateway_names: ['Razorpay'],
+    financial_status: 'paid',
+  }
+  it('detects prepaid vs COD', () => {
+    expect(isPrepaidOrder(prepaid)).toBe(true)
+    expect(isCodOrder(prepaid)).toBe(false)
+    expect(isPrepaidOrder(order)).toBe(false)
+  })
+  it('skips unpaid online orders', () => {
+    expect(isPrepaidOrder({ ...prepaid, financial_status: 'pending' })).toBe(false)
+  })
+  it('builds body-only params', () => {
+    expect(buildPrepaidTemplateParams(prepaid)).toEqual({
+      body: ['Ravi', '63151', 'Hindrishi Zero Wart', '648'],
+    })
   })
 })

@@ -10,7 +10,9 @@
 //   SHOPIFY_WACRM_ACCOUNT_ID        wacrm account that owns the WhatsApp
 //                                   number used for confirmations
 //   SHOPIFY_COD_TEMPLATE_NAME       default: cod_order_confirmation
-//   SHOPIFY_COD_TEMPLATE_LANGUAGE   default: en
+//   SHOPIFY_COD_TEMPLATE_LANGUAGE   default: en (also used for prepaid)
+//   SHOPIFY_PREPAID_TEMPLATE_NAME   default: prepaid_order_confirmation
+//   SHOPIFY_HELPLINE_NUMBER         default: 9278142142
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/automations/admin-client'
@@ -19,17 +21,21 @@ import { sendMessageToConversation } from '@/lib/whatsapp/send-message'
 import { updateOrderTags } from './admin-api'
 import {
   COD_TAGS,
+  DEFAULT_HELPLINE,
   alreadyHandled,
+  buildPrepaidTemplateParams,
   buildTemplateParams,
   customerFirstName,
   extractOrderPhone,
   isCodOrder,
+  isPrepaidOrder,
   parseReplyPayload,
   type ShopifyOrderPayload,
 } from './cod-confirm'
 
 export type SendOutcome =
   | 'sent'
+  | 'sent_prepaid'
   | 'skipped_not_cod'
   | 'skipped_already_handled'
   | 'no_phone'
@@ -43,6 +49,14 @@ function templateLanguage(): string {
   return process.env.SHOPIFY_COD_TEMPLATE_LANGUAGE || 'en'
 }
 
+function prepaidTemplateName(): string {
+  return process.env.SHOPIFY_PREPAID_TEMPLATE_NAME || 'prepaid_order_confirmation'
+}
+
+function helpline(): string {
+  return process.env.SHOPIFY_HELPLINE_NUMBER || DEFAULT_HELPLINE
+}
+
 export function codAccountId(): string | null {
   return process.env.SHOPIFY_WACRM_ACCOUNT_ID || null
 }
@@ -50,7 +64,8 @@ export function codAccountId(): string | null {
 export async function sendCodConfirmation(
   order: ShopifyOrderPayload
 ): Promise<SendOutcome> {
-  if (!isCodOrder(order)) return 'skipped_not_cod'
+  const cod = isCodOrder(order)
+  if (!cod && !isPrepaidOrder(order)) return 'skipped_not_cod'
   if (alreadyHandled(order)) return 'skipped_already_handled'
 
   const accountId = codAccountId()
@@ -78,9 +93,9 @@ export async function sendCodConfirmation(
       contentText: null,
       mediaUrl: null,
       filename: null,
-      templateName: templateName(),
+      templateName: cod ? templateName() : prepaidTemplateName(),
       templateLanguage: templateLanguage(),
-      templateMessageParams: buildTemplateParams(order),
+      templateMessageParams: cod ? buildTemplateParams(order) : buildPrepaidTemplateParams(order),
       interactivePayload: null,
       replyToMessageId: null,
     })
@@ -90,16 +105,17 @@ export async function sendCodConfirmation(
     return 'send_failed'
   }
 
-  await updateOrderTags(order.id, [COD_TAGS.sent])
-  return 'sent'
+  // Prepaid orders need no reply, so they go straight to Confirmed.
+  await updateOrderTags(order.id, [cod ? COD_TAGS.sent : COD_TAGS.confirmed])
+  return cod ? 'sent' : 'sent_prepaid'
 }
 
-const REPLY_TEXT = {
-  confirm:
-    'Dhanyavaad! Aapka order confirm ho gaya hai. Hum ise jaldi dispatch karenge aur tracking link WhatsApp par bhejenge.',
-  cancel:
-    'Aapka order cancel request mil gaya hai. Agar galti se cancel hua ho, toh yahin reply karke humein bata dijiye.',
-} as const
+function replyText(action: 'confirm' | 'cancel'): string {
+  const help = `Koi bhi sawaal ho toh humein ${helpline()} par call karein.`
+  return action === 'confirm'
+    ? `Dhanyavaad! Aapka order confirm ho gaya hai. Hum ise jaldi dispatch karenge aur tracking link WhatsApp par bhejenge. ${help}`
+    : `Aapka order cancel request mil gaya hai. Agar galti se cancel hua ho, toh yahin reply karke humein bata dijiye. ${help}`
+}
 
 /**
  * Handle a Confirm/Cancel tap. Returns true when the payload was ours
@@ -131,7 +147,7 @@ export async function handleCodButtonReply(params: {
     await sendMessageToConversation(supabaseAdmin(), params.accountId, {
       conversationId: params.conversationId,
       messageType: 'text',
-      contentText: REPLY_TEXT[parsed.action],
+      contentText: replyText(parsed.action),
       mediaUrl: null,
       filename: null,
       templateName: null,

@@ -1,7 +1,10 @@
-# Shopify COD confirmation over WhatsApp
+# Shopify order confirmation over WhatsApp
 
 New Cash-on-Delivery orders on Shopify get an automatic WhatsApp message with
 **Confirm** and **Cancel** buttons. The customer's tap tags the Shopify order.
+Prepaid (paid online) orders get a plain confirmation message and are tagged
+`WA-Confirmed` straight away. Every message carries the helpline number
+(9278142142, override with `SHOPIFY_HELPLINE_NUMBER`).
 
 | Tag | Meaning |
 | --- | --- |
@@ -24,9 +27,21 @@ Namaste {{1}}, Hindrishi Ayurveda par aapka order #{{2}} mil gaya hai.
 Product: {{3}}
 Amount: ₹{{4}} (Cash on Delivery)
 Kripya neeche button dabakar confirm karein, taaki hum aaj hi dispatch kar sakein.
+Koi bhi sawaal ho toh humein 9278142142 par call karein.
 ```
 
 Buttons (both **Quick reply**, in this order): `Confirm Order`, `Cancel Order`.
+
+And a second **Utility** template named `prepaid_order_confirmation`, language
+`en`, with no buttons:
+
+```
+Namaste {{1}}, Hindrishi Ayurveda par aapka order #{{2}} confirm ho gaya hai.
+Product: {{3}}
+Amount: ₹{{4}} (Paid)
+Hum ise jaldi dispatch karenge aur tracking link WhatsApp par bhejenge.
+Koi bhi sawaal ho toh humein 9278142142 par call karein.
+```
 
 After Meta approves it, run **Settings → Templates → Sync from Meta** in the CRM.
 
