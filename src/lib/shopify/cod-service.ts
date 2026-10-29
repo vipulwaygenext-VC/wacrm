@@ -21,9 +21,17 @@ import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation'
 import { sendMessageToConversation } from '@/lib/whatsapp/send-message'
 import { updateOrderTags } from './admin-api'
 import {
+  advanceApplies,
+  advanceTemplateName,
+  buildPayToken,
+  isAdvanceEnabled,
+  remainingAfterAdvance,
+} from './advance'
+import {
   COD_TAGS,
   DEFAULT_HELPLINE,
   alreadyHandled,
+  buildAdvanceTemplateParams,
   buildPrepaidTemplateParams,
   buildTemplateParams,
   customerFirstName,
@@ -78,6 +86,35 @@ export async function codAccountId(): Promise<string | null> {
   return cachedAccountId
 }
 
+/** Which template to send, and its params. */
+function templateFor(order: ShopifyOrderPayload, cod: boolean) {
+  const language = templateLanguage()
+  if (!cod) {
+    return {
+      templateName: prepaidTemplateName(),
+      templateLanguage: language,
+      templateMessageParams: buildPrepaidTemplateParams(order),
+    }
+  }
+  const total = Number(order.total_price ?? 0)
+  if (isAdvanceEnabled() && advanceApplies(total)) {
+    return {
+      templateName: advanceTemplateName(),
+      templateLanguage: language,
+      templateMessageParams: buildAdvanceTemplateParams(
+        order,
+        remainingAfterAdvance(total),
+        buildPayToken(order.id, process.env.RAZORPAY_KEY_SECRET!)
+      ),
+    }
+  }
+  return {
+    templateName: templateName(),
+    templateLanguage: language,
+    templateMessageParams: buildTemplateParams(order),
+  }
+}
+
 export async function sendCodConfirmation(
   order: ShopifyOrderPayload
 ): Promise<SendOutcome> {
@@ -112,9 +149,7 @@ export async function sendCodConfirmation(
       contentText: null,
       mediaUrl: null,
       filename: null,
-      templateName: cod ? templateName() : prepaidTemplateName(),
-      templateLanguage: templateLanguage(),
-      templateMessageParams: cod ? buildTemplateParams(order) : buildPrepaidTemplateParams(order),
+      ...templateFor(order, cod),
       interactivePayload: null,
       replyToMessageId: null,
     })

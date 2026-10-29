@@ -81,3 +81,44 @@ Copy the signing secret shown on that page into `SHOPIFY_WEBHOOK_SECRET`.
 Place a COD test order with your own phone number. You should get the
 WhatsApp message within seconds, the order should show `WA-Sent`, and tapping
 Confirm should switch it to `WA-Confirmed` and send a thank-you reply.
+
+## Optional: ₹100 advance via Razorpay
+
+When `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` are set, COD orders above
+the advance amount get the `cod_order_advance` template instead. It has a
+third **URL** button, "Pay ₹100 Advance", that opens
+`https://wacrm-zwrx-1.vercel.app/pay/<token>`. That page creates (or reuses)
+a Razorpay Payment Link for the order and redirects to Razorpay's hosted
+checkout. When Razorpay reports `payment_link.paid`, the order gets a manual
+payment of ₹100 (so the amount due on delivery drops) and the tag
+`WA-Advance-Paid`.
+
+Template `cod_order_advance` (Utility, `en`):
+
+```
+Namaste {{1}}, Hindrishi par aapka order #{{2}} mil gaya hai.
+Product: {{3}}
+Amount: ₹{{4}} (Cash on Delivery)
+Kripya Confirm dabayein, taaki hum aaj hi dispatch kar sakein.
+
+Chahein toh abhi sirf ₹100 advance pay karein, baaki ₹{{5}} delivery par.
+Payment Razorpay ke secure page par hota hai, Hindrishi ke naam se. Hum kabhi OTP, PIN ya password nahi maangte.
+Koi bhi sawaal ho toh humein 9278142142 par call karein.
+```
+
+Buttons, in this order: Quick reply `Confirm Order`, Quick reply
+`Cancel Order`, Visit website `Pay ₹100 Advance` with dynamic URL
+`https://wacrm-zwrx-1.vercel.app/pay/{{1}}`.
+
+Razorpay setup: Dashboard → Account & Settings → API Keys (copy Key ID and
+Secret), and Webhooks → Add webhook URL
+`https://wacrm-zwrx-1.vercel.app/api/integrations/razorpay/webhook`, event
+`payment_link.paid`, with a secret of your choice.
+
+| Variable | Value |
+| --- | --- |
+| `RAZORPAY_KEY_ID` | Razorpay Key ID |
+| `RAZORPAY_KEY_SECRET` | Razorpay Key Secret |
+| `RAZORPAY_WEBHOOK_SECRET` | the webhook secret you chose |
+| `SHOPIFY_ADVANCE_AMOUNT` | optional, default `100` |
+| `SHOPIFY_COD_ADVANCE_TEMPLATE_NAME` | optional, default `cod_order_advance` |
