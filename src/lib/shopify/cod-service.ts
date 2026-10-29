@@ -7,8 +7,9 @@
 //                                   `shopify_cod:` payload
 //
 // Env:
-//   SHOPIFY_WACRM_ACCOUNT_ID        wacrm account that owns the WhatsApp
-//                                   number used for confirmations
+//   SHOPIFY_WACRM_ACCOUNT_ID        optional: wacrm account that owns the
+//                                   WhatsApp number used for confirmations
+//                                   (defaults to the only connected account)
 //   SHOPIFY_COD_TEMPLATE_NAME       default: cod_order_confirmation
 //   SHOPIFY_COD_TEMPLATE_LANGUAGE   default: en (also used for prepaid)
 //   SHOPIFY_PREPAID_TEMPLATE_NAME   default: prepaid_order_confirmation
@@ -57,8 +58,24 @@ function helpline(): string {
   return process.env.SHOPIFY_HELPLINE_NUMBER || DEFAULT_HELPLINE
 }
 
-export function codAccountId(): string | null {
-  return process.env.SHOPIFY_WACRM_ACCOUNT_ID || null
+let cachedAccountId: string | null = null
+
+/**
+ * The wacrm account whose WhatsApp number sends confirmations:
+ * SHOPIFY_WACRM_ACCOUNT_ID when set, otherwise the only account with a
+ * WhatsApp connection (single-tenant installs need no extra setting).
+ */
+export async function codAccountId(): Promise<string | null> {
+  const fromEnv = process.env.SHOPIFY_WACRM_ACCOUNT_ID
+  if (fromEnv) return fromEnv
+  if (cachedAccountId) return cachedAccountId
+  const { data, error } = await supabaseAdmin()
+    .from('whatsapp_config')
+    .select('account_id')
+    .limit(2)
+  if (error || !data || data.length !== 1) return null
+  cachedAccountId = data[0].account_id as string
+  return cachedAccountId
 }
 
 export async function sendCodConfirmation(
@@ -68,8 +85,10 @@ export async function sendCodConfirmation(
   if (!cod && !isPrepaidOrder(order)) return 'skipped_not_cod'
   if (alreadyHandled(order)) return 'skipped_already_handled'
 
-  const accountId = codAccountId()
-  if (!accountId) throw new Error('SHOPIFY_WACRM_ACCOUNT_ID not configured')
+  const accountId = await codAccountId()
+  if (!accountId) {
+    throw new Error('Set SHOPIFY_WACRM_ACCOUNT_ID (no single WhatsApp account found)')
+  }
 
   const phone = extractOrderPhone(order)
   if (!phone) {
@@ -129,7 +148,7 @@ export async function handleCodButtonReply(params: {
   const parsed = parseReplyPayload(params.replyId)
   if (!parsed) return false
   // Only the account wired to Shopify may touch Shopify orders.
-  if (codAccountId() !== params.accountId) return false
+  if ((await codAccountId()) !== params.accountId) return false
 
   try {
     if (parsed.action === 'confirm') {

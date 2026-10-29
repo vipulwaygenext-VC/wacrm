@@ -60,7 +60,7 @@ on the store. From **App settings** copy the **Client ID** and **Client secret**
 | `SHOPIFY_CLIENT_ID` | Client ID from step 2 |
 | `SHOPIFY_CLIENT_SECRET` | Client secret from step 2 |
 | `SHOPIFY_WEBHOOK_SECRET` | signing secret from step 4 |
-| `SHOPIFY_WACRM_ACCOUNT_ID` | your CRM account id (Supabase `accounts.id`) |
+| `SHOPIFY_WACRM_ACCOUNT_ID` | optional — only needed when the CRM has more than one WhatsApp account (Supabase `accounts.id`) |
 | `SHOPIFY_COD_TEMPLATE_NAME` | optional, default `cod_order_confirmation` |
 | `SHOPIFY_COD_TEMPLATE_LANGUAGE` | optional, default `en` |
 
