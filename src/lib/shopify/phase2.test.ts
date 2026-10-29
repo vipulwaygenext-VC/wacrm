@@ -8,7 +8,7 @@ import {
 } from './cod-confirm'
 import { CANCEL_SENTINEL, extractCancel, orderIdFromTexts } from './chat-actions'
 import { classifyDelay } from './delay-reminder'
-import { replyText } from './cod-service'
+import { replyText, templateChoices } from './cod-service'
 import { isGeminiTarget } from '../ai/providers/openai'
 
 const SECRET = 'test_secret'
@@ -84,6 +84,11 @@ describe('button replies', () => {
   })
   afterEach(() => {
     process.env = { ...env }
+  })
+  it('tries the prepay template first, then older ones', () => {
+    const names = templateChoices(order, true).map((c) => c.templateName)
+    expect(names).toEqual(['cod_order_prepay', 'cod_order_advance', 'cod_order_confirmation'])
+    expect(templateChoices(order, false).map((c) => c.templateName)).toEqual(['prepaid_order_confirmation'])
   })
   it('cancel reply asks why, offers both payments and the way to cancel', () => {
     const t = replyText('cancel', '#63151', { advance: 'https://a/pay/x', full: 'https://a/pay/f/x' })

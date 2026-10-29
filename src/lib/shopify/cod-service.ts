@@ -92,45 +92,53 @@ export async function codAccountId(): Promise<string | null> {
   return cachedAccountId
 }
 
-/** Which template to send, and its params. */
-function templateFor(order: ShopifyOrderPayload, cod: boolean) {
+interface TemplateChoice {
+  templateName: string
+  templateLanguage: string
+  templateMessageParams: { body: string[]; buttonParams?: Record<number, string> }
+}
+
+/**
+ * Templates to try, best first. A newer template that Meta hasn't
+ * approved yet (or that was paused) fails the send, so the next one is
+ * tried — rolling out a new template never stops confirmations.
+ */
+export function templateChoices(order: ShopifyOrderPayload, cod: boolean): TemplateChoice[] {
   const language = templateLanguage()
   if (!cod) {
-    return {
-      templateName: prepaidTemplateName(),
-      templateLanguage: language,
-      templateMessageParams: buildPrepaidTemplateParams(order),
-    }
+    return [
+      {
+        templateName: prepaidTemplateName(),
+        templateLanguage: language,
+        templateMessageParams: buildPrepaidTemplateParams(order),
+      },
+    ]
   }
   const total = Number(order.total_price ?? 0)
-  const prepay = prepayTemplateName()
-  if (isAdvanceEnabled() && advanceApplies(total) && prepay) {
-    return {
-      templateName: prepay,
-      templateLanguage: language,
-      templateMessageParams: buildPrepayTemplateParams(
-        order,
-        remainingAfterAdvance(total),
-        buildPayToken(order.id, process.env.RAZORPAY_KEY_SECRET!)
-      ),
-    }
-  }
+  const choices: TemplateChoice[] = []
   if (isAdvanceEnabled() && advanceApplies(total)) {
-    return {
+    const token = buildPayToken(order.id, process.env.RAZORPAY_KEY_SECRET!)
+    const remaining = remainingAfterAdvance(total)
+    const prepay = prepayTemplateName()
+    if (prepay) {
+      choices.push({
+        templateName: prepay,
+        templateLanguage: language,
+        templateMessageParams: buildPrepayTemplateParams(order, remaining, token),
+      })
+    }
+    choices.push({
       templateName: advanceTemplateName(),
       templateLanguage: language,
-      templateMessageParams: buildAdvanceTemplateParams(
-        order,
-        remainingAfterAdvance(total),
-        buildPayToken(order.id, process.env.RAZORPAY_KEY_SECRET!)
-      ),
-    }
+      templateMessageParams: buildAdvanceTemplateParams(order, remaining, token),
+    })
   }
-  return {
+  choices.push({
     templateName: templateName(),
     templateLanguage: language,
     templateMessageParams: buildTemplateParams(order),
-  }
+  })
+  return choices
 }
 
 export async function sendCodConfirmation(
@@ -168,16 +176,28 @@ export async function sendCodConfirmation(
       customerFirstName(order)
     )
     conversationId = resolved.conversationId
-    await sendMessageToConversation(supabase, accountId, {
-      conversationId,
-      messageType: 'template',
-      contentText: null,
-      mediaUrl: null,
-      filename: null,
-      ...templateFor(order, cod),
-      interactivePayload: null,
-      replyToMessageId: null,
-    })
+    let lastErr: unknown = null
+    let sent = false
+    for (const choice of templateChoices(order, cod)) {
+      try {
+        await sendMessageToConversation(supabase, accountId, {
+          conversationId,
+          messageType: 'template',
+          contentText: null,
+          mediaUrl: null,
+          filename: null,
+          ...choice,
+          interactivePayload: null,
+          replyToMessageId: null,
+        })
+        sent = true
+        break
+      } catch (err) {
+        lastErr = err
+        console.warn(`[shopify-cod] template ${choice.templateName} failed, trying next:`, err)
+      }
+    }
+    if (!sent) throw lastErr
   } catch (err) {
     console.error(`[shopify-cod] send failed for order ${order.name ?? order.id}:`, err)
     await updateOrderTags(order.id, [COD_TAGS.sendFailed]).catch(() => {})
