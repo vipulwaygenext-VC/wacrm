@@ -12,6 +12,10 @@ import {
   loadAccountMetaCredentials,
 } from '@/lib/flows/meta-send'
 import { sendTypingIndicator } from '@/lib/whatsapp/meta-api'
+
+/** Sent when the AI hands a chat to the team without a reply of its own. */
+const DEFAULT_HANDOFF_MESSAGE =
+  'Ji, samajh gaye 🙏 Hamari team jaldi aapse contact karegi. Turant baat karni ho toh 9278142142 par call kar sakte hain.'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import {
   alertStaff,
@@ -196,6 +200,21 @@ export async function dispatchInboundToAiReply(
         update.assigned_agent_id = config.handoffAgentId
       }
       await db.from('conversations').update(update).eq('id', conversationId)
+      // Don't leave the customer on read: send the model's own holding
+      // line (e.g. "our doctor will call you") or a default one.
+      // AI_HANDOFF_MESSAGE overrides the default; 'off' sends nothing.
+      const fallback = process.env.AI_HANDOFF_MESSAGE?.trim() || DEFAULT_HANDOFF_MESSAGE
+      const holding = text || (fallback === 'off' ? '' : fallback)
+      if (holding) {
+        await engineSendText({
+          accountId,
+          userId: configOwnerUserId,
+          conversationId,
+          contactId,
+          text: holding,
+          aiGenerated: true,
+        }).catch((err) => console.error('[ai auto-reply] handoff message failed:', err))
+      }
       await alertStaff(db, accountId, contactId, `AI ne chat team ko di: ${summary}`)
       return
     }
