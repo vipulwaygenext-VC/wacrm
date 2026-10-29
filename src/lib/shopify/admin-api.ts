@@ -172,3 +172,46 @@ export async function recordManualPayment(
   const errs = data.orderCreateManualPayment.userErrors
   if (errs.length) throw new ShopifyApiError(errs.map((e) => e.message).join('; '))
 }
+
+export type ClaimResult = 'claimed' | 'taken' | 'unknown'
+
+/**
+ * Atomically mark an order as handled for `key` (once per order).
+ *
+ * Uses a metafield with compare-and-swap: `compareDigest: null` means
+ * "create only if it doesn't exist", so when Shopify delivers the same
+ * webhook twice (retries, or two deliveries racing) only one caller gets
+ * 'claimed'. 'unknown' means Shopify couldn't be asked (network/scope) —
+ * the caller decides whether to proceed.
+ */
+export async function claimOrderOnce(orderId: number | string, key: string): Promise<ClaimResult> {
+  try {
+    const data = await shopifyGraphql<{
+      metafieldsSet: { userErrors: { code: string | null; message: string }[] }
+    }>(
+      `mutation($m: [MetafieldsSetInput!]!) {
+        metafieldsSet(metafields: $m) { userErrors { field message code } }
+      }`,
+      {
+        m: [
+          {
+            ownerId: orderGid(orderId),
+            namespace: 'wacrm',
+            key,
+            type: 'single_line_text_field',
+            value: new Date().toISOString(),
+            compareDigest: null,
+          },
+        ],
+      }
+    )
+    const errs = data.metafieldsSet.userErrors
+    if (!errs.length) return 'claimed'
+    if (errs.some((e) => e.code === 'STALE_OBJECT')) return 'taken'
+    console.error(`[shopify] claim ${key} on ${orderId} failed:`, errs)
+    return 'unknown'
+  } catch (err) {
+    console.error(`[shopify] claim ${key} on ${orderId} failed:`, err)
+    return 'unknown'
+  }
+}
