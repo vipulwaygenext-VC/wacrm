@@ -120,6 +120,9 @@ export interface AdvanceOrderInfo {
   outstanding: number
   /** Shipping charged on the order (e.g. the ₹49 COD charge). */
   shipping: number
+  /** Advance paid on Razorpay that Shopify's outstanding doesn't reflect
+   *  (partial payments can only be recorded on Shopify Plus). */
+  advanceUnrecorded: number
 }
 
 /** What the /pay page needs to know about an order. */
@@ -131,6 +134,7 @@ export async function getOrderForAdvance(orderId: number | string): Promise<Adva
       cancelledAt: string | null
       totalOutstandingSet: { shopMoney: { amount: string } }
       totalShippingPriceSet: { shopMoney: { amount: string } }
+      advanceUnrecorded: { value: string } | null
     } | null
   }>(
     // No customer / address fields: those are protected customer data and
@@ -140,6 +144,7 @@ export async function getOrderForAdvance(orderId: number | string): Promise<Adva
         name tags cancelledAt
         totalOutstandingSet { shopMoney { amount } }
         totalShippingPriceSet { shopMoney { amount } }
+        advanceUnrecorded: metafield(namespace: "wacrm", key: "advance_unrecorded") { value }
       }
     }`,
     { id: orderGid(orderId) }
@@ -151,6 +156,7 @@ export async function getOrderForAdvance(orderId: number | string): Promise<Adva
     tags: o.tags,
     outstanding: Number(o.totalOutstandingSet.shopMoney.amount),
     shipping: Number(o.totalShippingPriceSet.shopMoney.amount),
+    advanceUnrecorded: Number(o.advanceUnrecorded?.value ?? 0) || 0,
   }
 }
 
@@ -175,6 +181,56 @@ export async function recordManualPayment(
     }
   )
   const errs = data.orderCreateManualPayment.userErrors
+  if (errs.length) throw new ShopifyApiError(errs.map((e) => e.message).join('; '))
+}
+
+/** Mark the whole order paid (works on every plan, unlike partial amounts). */
+export async function markOrderPaid(orderId: number | string): Promise<void> {
+  const data = await shopifyGraphql<{
+    orderMarkAsPaid: { userErrors: { message: string }[] }
+  }>(
+    `mutation($input: OrderMarkAsPaidInput!) {
+      orderMarkAsPaid(input: $input) { userErrors { field message } }
+    }`,
+    { input: { id: orderGid(orderId) } }
+  )
+  const errs = data.orderMarkAsPaid.userErrors
+  if (errs.length) throw new ShopifyApiError(errs.map((e) => e.message).join('; '))
+}
+
+/** Note + the chat this order's WhatsApp messages went to. */
+export async function getOrderNoteAndChat(
+  orderId: number | string
+): Promise<{ note: string; conversationId: string | null }> {
+  const data = await shopifyGraphql<{
+    order: { note: string | null; metafield: { value: string } | null } | null
+  }>(
+    `query($id: ID!) {
+      order(id: $id) {
+        note
+        metafield(namespace: "wacrm", key: "conversation_id") { value }
+      }
+    }`,
+    { id: orderGid(orderId) }
+  )
+  return {
+    note: data.order?.note ?? '',
+    conversationId: data.order?.metafield?.value ?? null,
+  }
+}
+
+/** Add a line to the order note (kept, not replaced). */
+export async function appendOrderNote(orderId: number | string, line: string): Promise<void> {
+  const { note } = await getOrderNoteAndChat(orderId)
+  const data = await shopifyGraphql<{
+    orderUpdate: { userErrors: { message: string }[] }
+  }>(
+    `mutation($input: OrderInput!) {
+      orderUpdate(input: $input) { userErrors { field message } }
+    }`,
+    { input: { id: orderGid(orderId), note: note ? `${note}\n${line}` : line } }
+  )
+  const errs = data.orderUpdate.userErrors
   if (errs.length) throw new ShopifyApiError(errs.map((e) => e.message).join('; '))
 }
 
