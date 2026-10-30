@@ -11,6 +11,7 @@ import {
   normalizeIndianPhone,
   parseReplyPayload,
   productSummary,
+  isManualOrder,
   verifyShopifyHmac,
   type ShopifyOrderPayload,
 } from './cod-confirm'
@@ -130,5 +131,13 @@ describe('prepaid orders', () => {
     expect(buildPrepaidTemplateParams(prepaid)).toEqual({
       body: ['Ravi', '63151', 'Hindrishi Zero Wart', '648'],
     })
+  })
+})
+
+describe('isManualOrder', () => {
+  it('skips completed draft orders and no-whatsapp tags', () => {
+    expect(isManualOrder({ id: 1, source_name: 'shopify_draft_order' })).toBe(true)
+    expect(isManualOrder({ id: 1, source_name: 'web', tags: 'No-WhatsApp, vip' })).toBe(true)
+    expect(isManualOrder({ id: 1, source_name: 'web' })).toBe(false)
   })
 })

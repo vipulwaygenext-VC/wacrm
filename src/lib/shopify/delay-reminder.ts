@@ -45,7 +45,7 @@ export type DelayKind = 'paid' | 'unpaid' | 'skip'
 export function classifyDelay(o: Pick<DelayCandidate, 'tags' | 'outstanding'>): DelayKind {
   const tags = o.tags.map((t) => t.toLowerCase())
   const has = (t: string) => tags.includes(t.toLowerCase())
-  if (has(COD_TAGS.cancelled) || has(COD_TAGS.cancelRequested)) return 'skip'
+  if (has(COD_TAGS.cancelled) || has(COD_TAGS.cancelRequested) || has('no-whatsapp')) return 'skip'
   if (o.outstanding <= 0 || has(FULL_PAID_TAG) || has(ADVANCE_TAG)) return 'paid'
   return 'unpaid'
 }
