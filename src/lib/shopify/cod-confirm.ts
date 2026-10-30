@@ -36,6 +36,8 @@ export interface ShopifyOrderPayload {
   currency?: string
   financial_status?: string | null
   payment_gateway_names?: string[]
+  /** 'web', 'shopify_draft_order', 'pos', … */
+  source_name?: string | null
   tags?: string
   phone?: string | null
   line_items?: { title?: string; quantity?: number }[]
@@ -90,6 +92,16 @@ export function orderTags(order: ShopifyOrderPayload): string[] {
     .split(',')
     .map((t) => t.trim())
     .filter(Boolean)
+}
+
+/**
+ * Orders the team created by hand (completed draft orders) or tagged
+ * `no-whatsapp`: the customer already spoke to us / already paid, so no
+ * automatic WhatsApp message.
+ */
+export function isManualOrder(order: ShopifyOrderPayload): boolean {
+  if ((order.source_name ?? '').toLowerCase() === 'shopify_draft_order') return true
+  return orderTags(order).some((t) => t.toLowerCase() === 'no-whatsapp')
 }
 
 /** True when we already messaged (or resolved) this order — Shopify retries webhooks. */

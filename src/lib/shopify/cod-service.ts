@@ -36,6 +36,7 @@ import {
   COD_TAGS,
   DEFAULT_HELPLINE,
   alreadyHandled,
+  isManualOrder,
   buildAdvanceTemplateParams,
   buildPrepaidTemplateParams,
   buildPrepayTemplateParams,
@@ -52,6 +53,7 @@ export type SendOutcome =
   | 'sent'
   | 'sent_prepaid'
   | 'skipped_not_cod'
+  | 'skipped_manual_order'
   | 'skipped_already_handled'
   | 'no_phone'
   | 'send_failed'
@@ -147,6 +149,7 @@ export async function sendCodConfirmation(
   const cod = isCodOrder(order)
   if (!cod && !isPrepaidOrder(order)) return 'skipped_not_cod'
   if (alreadyHandled(order)) return 'skipped_already_handled'
+  if (isManualOrder(order)) return 'skipped_manual_order'
   // Shopify can deliver orders/create more than once; only the first
   // delivery per order sends a message.
   if ((await claimOrderOnce(order.id, 'confirmation_sent')) === 'taken') {
