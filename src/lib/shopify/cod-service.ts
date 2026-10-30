@@ -248,12 +248,12 @@ export function replyText(
   }
   if (action === 'help') {
     return (
-      `Ji zaroor! Order ${orderName} ke baare mein aap kuch bhi pooch sakte hain — product, use karne ka tareeka, delivery ya payment. ` +
+      `Namaste ji, main Sanya, Hindrishi se 🙏 Order ${orderName} ke baare mein aap kuch bhi pooch sakte hain — product, use karne ka tareeka, delivery ya payment. ` +
       `Hindi, English ya apni bhasha mein likhiye.${pay}\n\n${help}`
     )
   }
   return (
-    `Arre ji, order ${orderName} abhi cancel mat kijiye 🙏 Kya koi pareshani hai — price, delivery time, ya product ko lekar koi doubt? ` +
+    `Namaste ji, main Sanya, Hindrishi se 🙏 Order ${orderName} abhi cancel mat kijiye. Kya koi pareshani hai — price, delivery time, ya product ko lekar koi doubt? ` +
     `Bataiye, hum abhi solve kar dete hain.\n\n` +
     `Aapke liye: poora payment online karein toh COD charge nahi lagega (FREE shipping) aur aapka order sabse pehle dispatch hoga. ` +
     `Ya sirf ₹${advanceAmount()} advance dekar order confirm kar lijiye.${pay}` +
