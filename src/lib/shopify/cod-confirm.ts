@@ -144,8 +144,13 @@ export function customerFirstName(order: ShopifyOrderPayload): string {
 }
 
 /** "Hindrishi Zero Wart (x2) +1 more" — capped so Meta's param limit is safe. */
+/** Fee lines some stores add as products ("COD Handling Charge" etc.). */
+const FEE_LINE = /\b(cod|cash on delivery)\b.*\b(charge|fee)\b|\bhandling (charge|fee)\b|\bshipping (charge|fee)\b|\bconvenience fee\b/i
+
 export function productSummary(order: ShopifyOrderPayload): string {
-  const items = (order.line_items ?? []).filter((i) => i.title)
+  const all = (order.line_items ?? []).filter((i) => i.title)
+  const real = all.filter((i) => !FEE_LINE.test(i.title!))
+  const items = real.length > 0 ? real : all
   if (items.length === 0) return 'Your order'
   const first = items[0]
   let text = first.title!.trim()

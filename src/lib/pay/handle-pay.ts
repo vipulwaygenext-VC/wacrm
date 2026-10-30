@@ -90,9 +90,15 @@ export async function handlePay(request: Request, token: string, kind: PayKind) 
   } catch (err) {
     console.error('[pay] advance link failed:', err)
     // A short, non-secret code so support can tell where it failed.
+    // Razorpay's own description (never contains secrets) helps fix
+    // account/config problems without digging through logs.
+    const detail =
+      err instanceof RazorpayError
+        ? ` · ${err.message.replace(/^Razorpay \d+:\s*/, '').replace(/[<>&"]/g, '').slice(0, 140)}`
+        : ''
     const code =
-      err instanceof RazorpayError ? `R${err.status ?? ''}` :
-      err instanceof ShopifyApiError ? 'S' : 'X'
+      (err instanceof RazorpayError ? `R${err.status ?? ''}` :
+      err instanceof ShopifyApiError ? 'S' : 'X') + detail
     return page(
       'Thodi der baad try karein',
       `<p>Abhi payment page khul nahi raha.</p><p style="color:#8a8f8a;font-size:12px">Code: ${code}</p>`,
