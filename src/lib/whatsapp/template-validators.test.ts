@@ -163,6 +163,15 @@ describe('validateButtons', () => {
       ]),
     ).toThrow(/cannot be interleaved/);
   });
+  it('accepts CTA buttons followed by a QUICK_REPLY block', () => {
+    expect(() =>
+      validateButtons([
+        { type: 'URL', text: 'A', url: 'https://x' },
+        { type: 'URL', text: 'B', url: 'https://y' },
+        { type: 'QUICK_REPLY', text: 'C' },
+      ]),
+    ).not.toThrow();
+  });
   it('accepts QUICK_REPLY then CTA in correct order', () => {
     expect(() =>
       validateButtons([
