@@ -76,10 +76,16 @@ export async function getOrCreatePaymentLink(params: {
       accept_partial: false,
       reference_id: existing ? `${params.referenceId}_${Date.now()}` : params.referenceId,
       description: params.description.slice(0, 2048),
-      customer: {
-        ...(params.customerName ? { name: params.customerName } : {}),
-        ...(params.customerPhone ? { contact: params.customerPhone } : {}),
-      },
+      // Razorpay rejects an empty customer object ("faulty key: customer"),
+      // so only send it when there is something in it.
+      ...(params.customerName || params.customerPhone
+        ? {
+            customer: {
+              ...(params.customerName ? { name: params.customerName } : {}),
+              ...(params.customerPhone ? { contact: params.customerPhone } : {}),
+            },
+          }
+        : {}),
       notify: { sms: false, email: false },
       reminder_enable: false,
       notes: params.notes ?? {},
