@@ -253,9 +253,11 @@ export function replyText(
     )
   }
   return (
-    `Order ${orderName} cancel karne se pehle ek baar bata dijiye — koi problem hai? Hum madad kar sakte hain. ` +
-    `Abhi orders bahut zyada hain, isliye hum confirmed (prepaid / ₹${advanceAmount()} advance) orders pehle dispatch kar rahe hain.${pay}` +
-    `\n\nAgar phir bhi cancel karna hai, toh bas "cancel" likh dijiye.`
+    `Arre ji, order ${orderName} abhi cancel mat kijiye 🙏 Kya koi pareshani hai — price, delivery time, ya product ko lekar koi doubt? ` +
+    `Bataiye, hum abhi solve kar dete hain.\n\n` +
+    `Aapke liye: poora payment online karein toh COD charge nahi lagega (FREE shipping) aur aapka order sabse pehle dispatch hoga. ` +
+    `Ya sirf ₹${advanceAmount()} advance dekar order confirm kar lijiye.${pay}` +
+    `\n\nCancel kyun karna chahte hain? Ek baar wajah bata dijiye.`
   )
 }
 

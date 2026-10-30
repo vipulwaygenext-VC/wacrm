@@ -90,12 +90,13 @@ describe('button replies', () => {
     expect(names).toEqual(['cod_order_prepay', 'cod_order_advance', 'cod_order_confirmation'])
     expect(templateChoices(order, false).map((c) => c.templateName)).toEqual(['prepaid_order_confirmation'])
   })
-  it('cancel reply asks why, offers both payments and the way to cancel', () => {
+  it('cancel reply asks why and offers both payments', () => {
     const t = replyText('cancel', '#63151', { advance: 'https://a/pay/x', full: 'https://a/pay/f/x' })
     expect(t).toContain('#63151')
     expect(t).toContain('https://a/pay/x')
     expect(t).toContain('https://a/pay/f/x')
-    expect(t).toContain('"cancel"')
+    expect(t).toContain("kyun")
+    expect(t).not.toContain("\"cancel\" likh")
   })
 })
 

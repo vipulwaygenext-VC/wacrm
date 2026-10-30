@@ -86,6 +86,17 @@ describe('template params', () => {
       productSummary({ ...order, line_items: [{ title: 'A', quantity: 2 }, { title: 'B' }] })
     ).toBe('A (x2) +1 more')
   })
+  it('skips COD / handling fee lines', () => {
+    expect(
+      productSummary({
+        ...order,
+        line_items: [{ title: 'COD Handling Charge' }, { title: 'Hindrishi Zero Tar Syrup' }],
+      })
+    ).toBe('Hindrishi Zero Tar Syrup')
+    expect(productSummary({ ...order, line_items: [{ title: 'COD Handling Charge' }] })).toBe(
+      'COD Handling Charge'
+    )
+  })
 })
 
 describe('verifyShopifyHmac', () => {
