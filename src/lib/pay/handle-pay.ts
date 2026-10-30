@@ -59,7 +59,9 @@ export async function handlePay(request: Request, token: string, kind: PayKind) 
     let amount: number
     if (kind === 'full') {
       // Free shipping: everything still due except the shipping / COD charge.
-      amount = Math.round((order.outstanding - order.shipping) * 100) / 100
+      // Minus any ₹100 advance already paid that Shopify couldn't record.
+      amount =
+        Math.round((order.outstanding - order.shipping - order.advanceUnrecorded) * 100) / 100
       if (amount < 1) {
         return page('Payment pehle hi mil chuka hai ✅', '<p>Is order par kuch baaki nahi hai.</p>')
       }
