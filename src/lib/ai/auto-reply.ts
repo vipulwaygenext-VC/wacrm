@@ -102,6 +102,23 @@ export async function dispatchInboundToAiReply(
     // below (this read can race a concurrent inbound).
     if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) return
 
+    // Customers often send 2-3 messages in a row. Wait a moment and only
+    // answer the newest one (its context includes the earlier ones), so
+    // they get one reply instead of several — and the free Gemini tier
+    // isn't hit with a burst.
+    if (inboundMessageId) {
+      await new Promise((r) => setTimeout(r, burstWaitMs()))
+      const { data: latest } = await db
+        .from('messages')
+        .select('message_id')
+        .eq('conversation_id', conversationId)
+        .eq('sender_type', 'customer')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (latest?.message_id && latest.message_id !== inboundMessageId) return
+    }
+
     const messages = await buildConversationContext(db, conversationId)
     if (messages.length === 0) return
 
@@ -251,7 +268,44 @@ export async function dispatchInboundToAiReply(
     })
   } catch (err) {
     console.error('[ai auto-reply] dispatch failed:', err)
+    // Don't leave the customer on read when the AI provider fails: send a
+    // short holding line (at most once per 30 min) and alert the office.
+    await sendFailureFallback(args).catch((e) =>
+      console.error('[ai auto-reply] fallback failed:', e),
+    )
   }
+}
+
+const FAILURE_FALLBACK =
+  'Ji, aapka message mil gaya hai 🙏 Ek minute dijiye, hum abhi check karke reply karte hain. Jaldi baat karni ho toh 9278142142 par call karein.'
+
+function burstWaitMs(): number {
+  const raw = Number(process.env.AI_BURST_WAIT_MS)
+  return Number.isFinite(raw) && raw >= 0 ? raw : 6000
+}
+
+async function sendFailureFallback(args: DispatchArgs): Promise<void> {
+  const text = process.env.AI_FAILURE_MESSAGE?.trim() || FAILURE_FALLBACK
+  if (text === 'off') return
+  const db = supabaseAdmin()
+  const since = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+  const { data: recent } = await db
+    .from('messages')
+    .select('id')
+    .eq('conversation_id', args.conversationId)
+    .eq('content_text', text)
+    .gte('created_at', since)
+    .limit(1)
+  if (recent && recent.length > 0) return
+  await engineSendText({
+    accountId: args.accountId,
+    userId: args.configOwnerUserId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    text,
+    aiGenerated: true,
+  })
+  await alertStaff(db, args.accountId, args.contactId, 'message bheja, AI reply nahi de paya')
 }
 
 /**

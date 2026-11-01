@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { AiConfig } from './types'
 
 // Shared, hoisted mock state so the module mocks can close over it.
+process.env.AI_BURST_WAIT_MS = '0'
+
 const h = vi.hoisted(() => ({
   loadAiConfig: vi.fn(),
   buildConversationContext: vi.fn(),
@@ -41,6 +43,19 @@ vi.mock('./admin-client', () => ({
           in: () => chain,
           limit: () =>
             Promise.resolve({ data: h.state.autoResponders, error: null }),
+        }
+        return chain
+      }
+      if (table === 'messages') {
+        // burst check → the newest customer message is this inbound
+        const chain = {
+          select: () => chain,
+          eq: () => chain,
+          gte: () => chain,
+          order: () => chain,
+          limit: () => Object.assign(Promise.resolve({ data: [], error: null }), chain),
+          maybeSingle: () =>
+            Promise.resolve({ data: { message_id: 'wamid.inbound-1' }, error: null }),
         }
         return chain
       }
