@@ -192,7 +192,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/95 p-1 shadow-xs border border-border/40">
               <Image
                 src="/logo-mark.png"
-                alt="vaktel"
+                alt="private CRM by Vipul Chawla"
                 width={28}
                 height={28}
                 className="h-full w-full object-contain"
@@ -200,7 +200,10 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               />
             </div>
             <div className="flex flex-col min-w-0 leading-tight">
-              <span className="text-sm font-bold tracking-tight text-foreground truncate">
+              <span
+                className="text-sm font-bold tracking-tight text-foreground truncate"
+                title={t("title")}
+              >
                 {t("title")}
               </span>
               <span className="text-[10px] font-medium text-muted-foreground truncate">

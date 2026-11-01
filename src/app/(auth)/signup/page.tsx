@@ -150,7 +150,7 @@ function SignupPageInner() {
             ) : (
               <Image
                 src="/logo-mark.png"
-                alt="vaktel"
+                alt="private CRM by Vipul Chawla"
                 width={48}
                 height={48}
                 className="h-full w-full object-contain"

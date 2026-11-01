@@ -91,7 +91,7 @@ export default function ForgotPasswordPage() {
           <div className="mb-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-white p-2 shadow-sm border border-border/50">
             <Image
               src="/logo-mark.png"
-              alt="vaktel"
+              alt="private CRM by Vipul Chawla"
               width={48}
               height={48}
               className="h-full w-full object-contain"
