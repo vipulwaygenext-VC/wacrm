@@ -55,7 +55,12 @@ export function verifyMetaWebhookSignature(
   rawBody: string,
   signatureHeader: string | null,
 ): boolean {
-  const secrets = parseAppSecrets(process.env.META_APP_SECRET)
+  // META_APP_SECRET_EXTRA lets another Meta app (a second business on
+  // this install) be added without re-typing the existing secret.
+  const secrets = [
+    ...parseAppSecrets(process.env.META_APP_SECRET),
+    ...parseAppSecrets(process.env.META_APP_SECRET_EXTRA),
+  ]
   if (secrets.length === 0) {
     console.error(
       '[webhook] META_APP_SECRET is not set — rejecting request. ' +

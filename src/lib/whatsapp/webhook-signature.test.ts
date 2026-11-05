@@ -131,3 +131,15 @@ describe("verifyMetaWebhookSignature", () => {
     });
   });
 });
+
+describe("META_APP_SECRET_EXTRA", () => {
+  afterEach(() => {
+    delete process.env.META_APP_SECRET_EXTRA;
+  });
+  it("accepts a second app's secret without touching META_APP_SECRET", () => {
+    process.env.META_APP_SECRET_EXTRA = "second-app-secret";
+    const body = JSON.stringify({ object: "whatsapp_business_account" });
+    expect(verifyMetaWebhookSignature(body, signedHeader(body, "second-app-secret"))).toBe(true);
+    expect(verifyMetaWebhookSignature(body, signedHeader(body))).toBe(true);
+  });
+});
