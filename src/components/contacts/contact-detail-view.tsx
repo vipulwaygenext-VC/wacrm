@@ -430,10 +430,14 @@ export function ContactDetailView({
                       )}
                     </button>
                     {contact.email && (
-                      <span className="flex items-center gap-1">
+                      <a
+                        href={`/email?contact=${contact.id}`}
+                        className="flex items-center gap-1 hover:text-foreground hover:underline"
+                        title="Send an email from the CRM"
+                      >
                         <Mail className="size-3" />
                         {contact.email}
-                      </span>
+                      </a>
                     )}
                     {contact.company && (
                       <span className="flex items-center gap-1">
