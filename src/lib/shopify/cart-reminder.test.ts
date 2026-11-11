@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   cartFirstName,
+  cartImageUrl,
   cartProduct,
   isQuietHour,
   istHour,
@@ -48,5 +49,14 @@ describe('cart reminder helpers', () => {
     expect(isQuietHour(new Date('2026-11-11T02:00:00Z'))).toBe(true); // 07:30 IST
     expect(isQuietHour(new Date('2026-11-11T01:00:00Z'))).toBe(true); // 06:30 IST
     expect(isQuietHour(new Date('2026-11-11T02:45:00Z'))).toBe(false); // 08:15 IST
+  });
+});
+
+describe('cartImageUrl', () => {
+  it('points at the logo image generator', () => {
+    const img = 'https://cdn.shopify.com/s/files/1/x.jpg?v=1';
+    expect(cartImageUrl(img, 'https://crm.test')).toBe(
+      'https://crm.test/api/og/cart-image?src=' + encodeURIComponent(img)
+    );
   });
 });

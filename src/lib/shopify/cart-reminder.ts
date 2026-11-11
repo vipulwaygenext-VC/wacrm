@@ -19,7 +19,7 @@ import { sendMessageToConversation } from '@/lib/whatsapp/send-message';
 import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation';
 import { shopifyGraphql } from './admin-api';
 import { normalizeIndianPhone } from './cod-confirm';
-import { codAccountId } from './cod-service';
+import { appOrigin, codAccountId } from './cod-service';
 
 export const CART_TEMPLATE = () =>
   process.env.CART_REMINDER_TEMPLATE_NAME || 'cart_reminder';
@@ -169,6 +169,16 @@ export async function phonesThatOrdered(since: Date): Promise<Set<string>> {
   return out;
 }
 
+/**
+ * Header picture for the reminder: the product photo with the Hindrishi
+ * logo band, rendered by /api/og/cart-image. CART_REMINDER_LOGO=off
+ * sends the plain product photo instead.
+ */
+export function cartImageUrl(productImage: string, origin = appOrigin()): string {
+  if (process.env.CART_REMINDER_LOGO === 'off') return productImage;
+  return `${origin}/api/og/cart-image?src=${encodeURIComponent(productImage)}`;
+}
+
 export async function runCartReminders(
   now = new Date()
 ): Promise<Record<string, number | string>> {
@@ -245,7 +255,9 @@ export async function runCartReminders(
         templateName: CART_TEMPLATE(),
         templateLanguage: process.env.SHOPIFY_COD_TEMPLATE_LANGUAGE || 'en',
         templateMessageParams: {
-          ...(cart.imageUrl ? { headerMediaUrl: cart.imageUrl } : {}),
+          ...(cart.imageUrl
+            ? { headerMediaUrl: cartImageUrl(cart.imageUrl) }
+            : {}),
           body: [cart.firstName, cart.product],
           buttonParams: { 0: suffix },
         },
