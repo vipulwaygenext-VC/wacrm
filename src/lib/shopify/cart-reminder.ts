@@ -97,7 +97,6 @@ interface CheckoutNode {
   abandonedCheckoutUrl: string;
   shippingAddress: { firstName: string | null; phone: string | null } | null;
   billingAddress: { phone: string | null } | null;
-  customer: { firstName: string | null; phone: string | null } | null;
   lineItems: { nodes: { title: string; image: { url: string } | null }[] };
 }
 
@@ -115,7 +114,6 @@ export async function findAbandonedCarts(
           id name createdAt completedAt abandonedCheckoutUrl
           shippingAddress { firstName phone }
           billingAddress { phone }
-          customer { firstName phone }
           lineItems(first: 5) { nodes { title image { url } } }
         }
       }
@@ -128,7 +126,6 @@ export async function findAbandonedCarts(
       const raw =
         n.shippingAddress?.phone ||
         n.billingAddress?.phone ||
-        n.customer?.phone ||
         '';
       const titles = n.lineItems.nodes.map((l) => l.title);
       return {
@@ -137,9 +134,7 @@ export async function findAbandonedCarts(
         createdAt: n.createdAt,
         url: n.abandonedCheckoutUrl,
         phone: raw ? normalizeIndianPhone(raw) : null,
-        firstName: cartFirstName(
-          n.shippingAddress?.firstName || n.customer?.firstName
-        ),
+        firstName: cartFirstName(n.shippingAddress?.firstName),
         product: cartProduct(titles),
         imageUrl:
           n.lineItems.nodes.find((l) => l.image?.url)?.image?.url ?? null,
@@ -154,20 +149,19 @@ export async function phonesThatOrdered(since: Date): Promise<Set<string>> {
       nodes: {
         phone: string | null;
         shippingAddress: { phone: string | null } | null;
-        customer: { phone: string | null } | null;
       }[];
     };
   }>(
     `query($q: String!) {
       orders(first: 250, query: $q, sortKey: CREATED_AT, reverse: true) {
-        nodes { phone shippingAddress { phone } customer { phone } }
+        nodes { phone shippingAddress { phone } }
       }
     }`,
     { q: `created_at:>='${since.toISOString()}'` }
   );
   const out = new Set<string>();
   for (const o of data.orders.nodes) {
-    for (const p of [o.phone, o.shippingAddress?.phone, o.customer?.phone]) {
+    for (const p of [o.phone, o.shippingAddress?.phone]) {
       const n = p ? normalizeIndianPhone(p) : null;
       if (n) out.add(n);
     }

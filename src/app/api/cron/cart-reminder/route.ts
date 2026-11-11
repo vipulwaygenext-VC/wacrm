@@ -33,6 +33,14 @@ export async function GET(request: Request) {
     (manualSecret && same(manual, manualSecret));
   if (!ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const stats = await runCartReminders();
-  return NextResponse.json(stats);
+  try {
+    const stats = await runCartReminders();
+    return NextResponse.json(stats);
+  } catch (err) {
+    console.error('[cart-reminder] run failed:', err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message.slice(0, 300) : 'run failed' },
+      { status: 500 }
+    );
+  }
 }
