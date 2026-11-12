@@ -591,3 +591,19 @@ export async function claimLabel(orderId: string): Promise<boolean> {
 export async function releaseLabel(orderId: string): Promise<void> {
   await deleteLabelClaim(orderId);
 }
+
+/** Should an orders/updated webhook with these tags trigger a booking? */
+export function wantsDispatch(tagsCsv: string | null | undefined): boolean {
+  const tags = (tagsCsv ?? '')
+    .split(',')
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean);
+  const has = (t: string) => tags.includes(t.toLowerCase());
+  if (has(SR_TAGS.rebook)) return true;
+  return (
+    has(SR_TAGS.rtd) &&
+    !has(SR_TAGS.ready) &&
+    !has(SR_TAGS.printed) &&
+    !has(SR_TAGS.error)
+  );
+}
