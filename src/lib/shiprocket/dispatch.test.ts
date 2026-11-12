@@ -31,10 +31,30 @@ const order = {
 };
 
 describe('amountDue', () => {
-  it('subtracts an advance Shopify could not record', () => {
-    expect(amountDue({ outstanding: 647, advanceUnrecorded: 100 })).toBe(547);
-    expect(amountDue({ outstanding: 0, advanceUnrecorded: 0 })).toBe(0);
-    expect(amountDue({ outstanding: 50, advanceUnrecorded: 100 })).toBe(0);
+  const base = {
+    total: 647,
+    outstanding: 647,
+    advanceUnrecorded: 0,
+    tags: [] as string[],
+  };
+  it('uses the Collect tag when present', () => {
+    // #63543: order already reduced to 547 AND advance metafield set
+    expect(
+      amountDue({
+        ...base,
+        total: 547,
+        outstanding: 547,
+        advanceUnrecorded: 100,
+        tags: ['Collect ₹547 on Delivery'],
+      })
+    ).toBe(547);
+    expect(amountDue({ ...base, tags: ['collect Rs 1,190 on delivery'] })).toBe(
+      1190
+    );
+  });
+  it('otherwise subtracts an advance Shopify could not record', () => {
+    expect(amountDue({ ...base, advanceUnrecorded: 100 })).toBe(547);
+    expect(amountDue({ ...base, outstanding: 0 })).toBe(0);
   });
 });
 

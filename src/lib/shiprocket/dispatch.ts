@@ -41,6 +41,7 @@ import {
 } from './client';
 
 export const SR_TAGS = {
+  rebook: 'SR-Rebook',
   rtd: process.env.SHIPROCKET_RTD_TAG || 'RTD',
   pending: 'SR-Pending',
   ready: 'Label-Ready',
@@ -169,8 +170,24 @@ async function loadOrder(
 /** Cash the courier should collect: what Shopify says is outstanding,
  *  minus a Razorpay advance Shopify couldn't record (non-Plus store). */
 export function amountDue(
-  o: Pick<ShopifyOrderForShipping, 'outstanding' | 'advanceUnrecorded'>
+  o: Pick<
+    ShopifyOrderForShipping,
+    'outstanding' | 'advanceUnrecorded' | 'total' | 'tags'
+  >
 ): number {
+  // 0. Shopify says it's fully paid → nothing to collect, whatever the tags say.
+  if (o.outstanding <= 0) return 0;
+  // 1. The "Collect ₹N on Delivery" tag (written when the advance was
+  //    paid, and editable by staff) is the source of truth.
+  for (const t of o.tags) {
+    const m =
+      /^collect\s*(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)\s*on delivery$/i.exec(
+        t.trim()
+      );
+    if (m) return Math.max(0, Number(m[1].replace(/,/g, '')));
+  }
+  // 2. Otherwise Shopify's outstanding amount minus a Razorpay advance
+  //    Shopify couldn't record (non-Plus store).
   return Math.max(
     0,
     Math.round((o.outstanding - o.advanceUnrecorded) * 100) / 100
@@ -306,8 +323,55 @@ export async function dispatchOrder(
 ): Promise<DispatchOutcome> {
   const id = String(orderId);
   if (!shiprocketConfigured()) return 'not_configured';
-  const o = await loadOrder(id);
+  let o = await loadOrder(id);
   if (!o || o.cancelledAt) return 'skipped';
+  if (o.tags.includes(SR_TAGS.rebook)) {
+    // Cancel the current Shiprocket booking and start over (e.g. wrong
+    // COD amount). Only cancels orders still in Shiprocket's pre-pickup states.
+    const ref = orderRef(o.name);
+    const mine = (await findOrders(ref)).filter((s) => {
+      const c = String(s.channel_order_id ?? '').replace(/^#/, '');
+      return (
+        (c === ref || c === o!.id) && !/cancel/i.test(String(s.status ?? ''))
+      );
+    });
+    if (
+      mine.some((s) => /picked|transit|deliver/i.test(String(s.status ?? '')))
+    ) {
+      return fail(id, 'already picked up by the courier - cannot rebook');
+    }
+    if (mine.length) await cancelOrders(mine.map((s) => s.id));
+    await shopifyGraphql(
+      `mutation($m: [MetafieldIdentifierInput!]!) {
+        metafieldsDelete(metafields: $m) { userErrors { message } }
+      }`,
+      {
+        m: [
+          'shiprocket_awb',
+          'shiprocket_label',
+          'shiprocket_booking',
+          'label_print',
+        ].map((key) => ({ ownerId: orderGid(id), namespace: 'wacrm', key })),
+      }
+    );
+    await updateOrderTags(
+      id,
+      [],
+      [
+        SR_TAGS.rebook,
+        SR_TAGS.ready,
+        SR_TAGS.printed,
+        SR_TAGS.error,
+        SR_TAGS.pending,
+      ]
+    );
+    await appendOrderNote(
+      id,
+      `Shiprocket: cancelled ${mine.length} booking(s) to rebook`
+    ).catch(() => {});
+    o = await loadOrder(id);
+    if (!o) return 'skipped';
+  }
   if (
     o.tags.includes(SR_TAGS.ready) ||
     o.tags.includes(SR_TAGS.printed) ||
@@ -443,8 +507,8 @@ export async function dispatchOrder(
 export async function findOrdersToDispatch(): Promise<string[]> {
   const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
   const q =
-    `tag:'${SR_TAGS.rtd}' -tag:'${SR_TAGS.ready}' ` +
-    `-tag:'${SR_TAGS.printed}' -tag:'${SR_TAGS.error}' status:open created_at:>='${since}'`;
+    `((tag:'${SR_TAGS.rtd}' -tag:'${SR_TAGS.ready}' -tag:'${SR_TAGS.printed}' ` +
+    `-tag:'${SR_TAGS.error}') OR tag:'${SR_TAGS.rebook}') status:open created_at:>='${since}'`;
   const data = await shopifyGraphql<{ orders: { nodes: { id: string }[] } }>(
     `query($q: String!) { orders(first: 50, query: $q, sortKey: CREATED_AT) { nodes { id } } }`,
     { q }
