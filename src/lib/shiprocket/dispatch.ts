@@ -273,6 +273,19 @@ export function buildShiprocketPayload(
   };
 }
 
+/** Shiprocket's search doesn't return "63543-R1" for "63543", so look
+ *  up each rebooked id too (until one isn't found). */
+async function findOurOrders(ref: string): Promise<SrOrder[]> {
+  const all = [...(await findOrders(ref))];
+  for (let n = 1; n <= 10; n++) {
+    const found = await findOrders(`${ref}-R${n}`);
+    if (!found.length) break;
+    all.push(...found);
+  }
+  const seen = new Set<number>();
+  return all.filter((o) => !seen.has(o.id) && (seen.add(o.id), true));
+}
+
 /** Shiprocket order ids belonging to this Shopify order: "63543",
  *  "#63543", the Shopify id, or a rebooked "63543-R1", "63543-R2"… */
 export function isOurShiprocketId(
@@ -363,7 +376,7 @@ export async function dispatchOrder(
     // Cancel the current Shiprocket booking and start over (e.g. wrong
     // COD amount). Only cancels orders still in Shiprocket's pre-pickup states.
     const ref = orderRef(o.name);
-    const mine = (await findOrders(ref)).filter(
+    const mine = (await findOurOrders(ref)).filter(
       (s) =>
         isOurShiprocketId(s.channel_order_id, ref, o!.id) &&
         !/cancel/i.test(String(s.status ?? ''))
@@ -433,7 +446,7 @@ export async function dispatchOrder(
 
     // Reuse the order if the Shopify channel already synced it; give the
     // sync a few minutes before creating it ourselves (avoids duplicates).
-    const srOrders = await findOrders(orderRef(o.name));
+    const srOrders = await findOurOrders(orderRef(o.name));
     const existing = matchShiprocketOrder(srOrders, o);
     const age = Date.now() - new Date(o.createdAt).getTime();
     if (
@@ -474,7 +487,7 @@ export async function dispatchOrder(
       shipmentId = res.shipment_id ?? null;
       if (!shipmentId) {
         const again = matchShiprocketOrder(
-          await findOrders(orderRef(o.name)),
+          await findOurOrders(orderRef(o.name)),
           o
         );
         shipmentId = again?.shipments?.[0]?.id ?? null;
