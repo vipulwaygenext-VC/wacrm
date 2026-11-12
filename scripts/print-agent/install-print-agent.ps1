@@ -1,4 +1,4 @@
-# One-time setup of the Hindrishi label printer on this laptop.
+﻿# One-time setup of the Hindrishi label printer on this laptop.
 # Double-click INSTALL.bat (it runs this script with the right settings).
 #
 # 1. Asks for the CRM secret (AUTOMATION_CRON_SECRET) and printer

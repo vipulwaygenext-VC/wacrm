@@ -1,4 +1,4 @@
-# Hindrishi label print agent
+﻿# Hindrishi label print agent
 # Runs on the office laptop. Every 20 seconds it asks the CRM for new
 # Shiprocket labels, prints each PDF on the default printer, and marks
 # the order "Label-Printed" in Shopify so it never prints twice.
@@ -44,7 +44,7 @@ while ($true) {
           Invoke-RestMethod -Method Post -Uri "$($config.appUrl)/api/print/labels/$($label.orderId)" -Headers $headers -TimeoutSec 30 | Out-Null
           Write-Log "printed $($label.name)"
         } else {
-          Write-Log "PRINT FAILED $($label.name) — is the printer on?"
+          Write-Log "PRINT FAILED $($label.name) - is the printer on?"
         }
       } catch {
         Write-Log "error on $($label.name): $($_.Exception.Message)"
