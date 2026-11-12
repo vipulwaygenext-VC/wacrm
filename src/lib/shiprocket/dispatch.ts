@@ -29,6 +29,7 @@ import {
 } from '@/lib/shopify/admin-api';
 import {
   assignAwb,
+  cancelOrders,
   chooseCourier,
   createOrUpdateOrder,
   findOrders,
@@ -261,6 +262,7 @@ function matchShiprocketOrder(
   const ref = orderRef(o.name);
   return (
     orders.find((s) => {
+      if (/cancel/i.test(String(s.status ?? ''))) return false;
       const c = String(s.channel_order_id ?? '').replace(/^#/, '');
       return c === ref || c === o.id;
     }) ?? null
@@ -360,14 +362,18 @@ export async function dispatchOrder(
           Number(existing.total) === due));
 
     if (!existing || (!paymentOk && !existingAwb)) {
-      const payload = buildShiprocketPayload(
-        o,
-        pickup.pickup_location,
-        due,
-        existing ? String(existing.channel_order_id) : orderRef(o.name)
-      );
-      const res = await createOrUpdateOrder(payload, !!existing);
-      shipmentId = res.shipment_id ?? shipmentId;
+      // Shiprocket won't edit orders its Shopify channel synced ("Order
+      // doesn't exist" on update). If the synced copy has the wrong
+      // payment (e.g. full COD after a ₹100 advance, or COD after the
+      // customer paid online) and isn't booked yet, cancel it and create
+      // a correct one instead.
+      if (existing) {
+        await cancelOrders([existing.id]);
+        shipmentId = null;
+      }
+      const payload = buildShiprocketPayload(o, pickup.pickup_location, due);
+      const res = await createOrUpdateOrder(payload, false);
+      shipmentId = res.shipment_id ?? null;
       if (!shipmentId) {
         const again = matchShiprocketOrder(
           await findOrders(orderRef(o.name)),

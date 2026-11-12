@@ -132,6 +132,11 @@ export async function createOrUpdateOrder(
   });
 }
 
+/** Cancel Shiprocket orders (only safe before an AWB is assigned). */
+export async function cancelOrders(ids: number[]): Promise<void> {
+  await sr('/orders/cancel', { body: { ids } });
+}
+
 export async function serviceability(q: {
   pickup: string;
   delivery: string;
