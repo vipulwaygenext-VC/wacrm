@@ -1,6 +1,8 @@
-name: Cart reminder
+name: Cart reminder + Shiprocket labels
 
-# Calls the abandoned-cart WhatsApp reminder every 30 minutes. Vercel's
+# Every 10 minutes: books Shiprocket labels for RTD / pending orders and
+# sends abandoned-cart WhatsApp reminders (each reminder goes out once;
+# runs in between find nothing new). Vercel's
 # Hobby plan only runs its own crons once a day, which is too slow for
 # cart recovery, so GitHub's scheduler does the knocking instead.
 #
@@ -10,7 +12,7 @@ name: Cart reminder
 
 on:
   schedule:
-    - cron: '7,37 * * * *'
+    - cron: '*/10 * * * *'
   workflow_dispatch: {}
 
 concurrency:
@@ -22,6 +24,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
+      - name: Book Shiprocket labels
+        env:
+          SECRET: ${{ secrets.AUTOMATION_CRON_SECRET }}
+          APP_URL: ${{ vars.APP_URL || 'https://wacrm-zwrx-1.vercel.app' }}
+        run: |
+          if [ -z "$SECRET" ]; then
+            echo "AUTOMATION_CRON_SECRET not set — skipping."
+            exit 0
+          fi
+          curl -sS --max-time 90 \
+            -H "x-cron-secret: $SECRET" \
+            "$APP_URL/api/cron/shiprocket" || true
+
       - name: Trigger reminder run
         env:
           SECRET: ${{ secrets.AUTOMATION_CRON_SECRET }}

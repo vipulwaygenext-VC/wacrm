@@ -11,7 +11,13 @@
 // ============================================================
 
 import { NextResponse, after } from 'next/server'
-import { verifyShopifyHmac, type ShopifyOrderPayload } from '@/lib/shopify/cod-confirm'
+import {
+  isManualOrder,
+  isPrepaidOrder,
+  verifyShopifyHmac,
+  type ShopifyOrderPayload,
+} from '@/lib/shopify/cod-confirm'
+import { dispatchOrder } from '@/lib/shiprocket/dispatch'
 import { sendCodConfirmation } from '@/lib/shopify/cod-service'
 
 export async function POST(request: Request) {
@@ -45,6 +51,16 @@ export async function POST(request: Request) {
       console.log(`[shopify-cod] order ${order.name ?? order.id}: ${outcome}`)
     } catch (err) {
       console.error('[shopify-cod] webhook error:', err)
+    }
+    // Prepaid orders go straight to Shiprocket for a label (usually
+    // "waiting_for_sync" here; the 10-minute sweep finishes the job).
+    if (isPrepaidOrder(order) && !isManualOrder(order)) {
+      try {
+        const r = await dispatchOrder(order.id, 'prepaid order')
+        console.log(`[shiprocket] order ${order.name ?? order.id}: ${r}`)
+      } catch (err) {
+        console.error('[shiprocket] prepaid dispatch failed:', err)
+      }
     }
   })
   return NextResponse.json({ status: 'received' })
