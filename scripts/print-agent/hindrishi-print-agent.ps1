@@ -23,12 +23,15 @@ function Write-Log($msg) {
 }
 
 function Print-Pdf($file) {
+  # SumatraPDF is a windowed app: PowerShell doesn't wait for it with '&'
+  # (and $LASTEXITCODE stays empty), so start it and wait for the result.
   if ($config.printer) {
-    & $sumatra -print-to $config.printer -print-settings 'fit' -silent $file
+    $args = @('-print-to', "`"$($config.printer)`"", '-print-settings', 'fit', '-silent', "`"$file`"")
   } else {
-    & $sumatra -print-to-default -print-settings 'fit' -silent $file
+    $args = @('-print-to-default', '-print-settings', 'fit', '-silent', "`"$file`"")
   }
-  return $LASTEXITCODE -eq 0
+  $p = Start-Process -FilePath $sumatra -ArgumentList $args -Wait -PassThru -WindowStyle Hidden
+  return $p.ExitCode -eq 0
 }
 
 Write-Log "agent started (printer: $(if ($config.printer) { $config.printer } else { 'default' }))"
