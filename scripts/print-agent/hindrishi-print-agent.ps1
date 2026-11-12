@@ -40,10 +40,19 @@ while ($true) {
   try {
     $res = Invoke-RestMethod -Uri "$($config.appUrl)/api/print/labels" -Headers $headers -TimeoutSec 30
     foreach ($label in $res.labels) {
+      # Several laptops can run this agent: claim the label first so
+      # only one of them prints it.
+      try {
+        Invoke-RestMethod -Method Post -Uri "$($config.appUrl)/api/print/labels/$($label.orderId)/claim" -Headers $headers -TimeoutSec 30 | Out-Null
+      } catch {
+        continue
+      }
       $file = Join-Path $env:TEMP ("label-{0}.pdf" -f $label.orderId)
+      $printed = $false
       try {
         Invoke-WebRequest -Uri $label.labelUrl -OutFile $file -TimeoutSec 60 -UseBasicParsing
         if (Print-Pdf $file) {
+          $printed = $true
           Invoke-RestMethod -Method Post -Uri "$($config.appUrl)/api/print/labels/$($label.orderId)" -Headers $headers -TimeoutSec 30 | Out-Null
           Write-Log "printed $($label.name)"
         } else {
@@ -53,6 +62,10 @@ while ($true) {
         Write-Log "error on $($label.name): $($_.Exception.Message)"
       } finally {
         Remove-Item $file -ErrorAction SilentlyContinue
+        if (-not $printed) {
+          # let another device / the next poll retry
+          try { Invoke-RestMethod -Method Delete -Uri "$($config.appUrl)/api/print/labels/$($label.orderId)/claim" -Headers $headers -TimeoutSec 30 | Out-Null } catch {}
+        }
       }
     }
   } catch {
