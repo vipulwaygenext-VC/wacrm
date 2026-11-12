@@ -66,6 +66,7 @@ describe('buildShiprocketPayload', () => {
       order_date: '2026-11-12 12:00',
       payment_method: 'COD',
       sub_total: 547,
+      shipping_charges: 0,
       total_discount: 100,
       billing_phone: '9876543210',
       billing_pincode: '302001',

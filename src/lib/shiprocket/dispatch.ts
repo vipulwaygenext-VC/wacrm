@@ -259,7 +259,10 @@ export function buildShiprocketPayload(
       selling_price: i.price,
     })),
     payment_method: prepaid ? 'Prepaid' : 'COD',
-    shipping_charges: o.shipping,
+    // Shiprocket adds shipping_charges on top of sub_total for the COD
+    // amount (#63543 came out ₹596 = 547 + 49), and `due` already
+    // includes the shipping/COD charge — so send 0 for COD orders.
+    shipping_charges: prepaid ? o.shipping : 0,
     // Shiprocket collects sub_total on COD shipments. For a part-paid
     // order that's only the balance; the advance shows as a discount.
     total_discount: prepaid
