@@ -1,11 +1,17 @@
 # One-time setup of the Hindrishi label printer on this laptop.
-# Right-click this file → "Run with PowerShell".
+# Double-click INSTALL.bat (it runs this script with the right settings).
 #
 # 1. Asks for the CRM secret (AUTOMATION_CRON_SECRET) and printer
 # 2. Downloads SumatraPDF (free, used to print PDFs silently)
 # 3. Starts the agent now and every time you log in
 
 $ErrorActionPreference = 'Stop'
+trap {
+  Write-Host ''
+  Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
+  Read-Host 'Press Enter to close'
+  exit 1
+}
 $src = Split-Path -Parent $MyInvocation.MyCommand.Path
 $dir = Join-Path $env:LOCALAPPDATA 'HindrishiPrint'
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
