@@ -2,8 +2,7 @@
 
 Prints Shiprocket labels automatically on the office laptop.
 
-**Setup (once):** right-click `install-print-agent.ps1` → *Run with
-PowerShell*, paste the CRM secret (`AUTOMATION_CRON_SECRET`), pick the
+**Setup (once):** double-click `INSTALL.bat`, paste the CRM secret (`AUTOMATION_CRON_SECRET`), pick the
 label printer. It installs into `%LOCALAPPDATA%\HindrishiPrint` and
 starts with Windows.
 

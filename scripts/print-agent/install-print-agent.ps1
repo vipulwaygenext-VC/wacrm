@@ -1,11 +1,17 @@
-# One-time setup of the Hindrishi label printer on this laptop.
-# Right-click this file → "Run with PowerShell".
+﻿# One-time setup of the Hindrishi label printer on this laptop.
+# Double-click INSTALL.bat (it runs this script with the right settings).
 #
 # 1. Asks for the CRM secret (AUTOMATION_CRON_SECRET) and printer
 # 2. Downloads SumatraPDF (free, used to print PDFs silently)
 # 3. Starts the agent now and every time you log in
 
 $ErrorActionPreference = 'Stop'
+trap {
+  Write-Host ''
+  Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
+  Read-Host 'Press Enter to close'
+  exit 1
+}
 $src = Split-Path -Parent $MyInvocation.MyCommand.Path
 $dir = Join-Path $env:LOCALAPPDATA 'HindrishiPrint'
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
@@ -23,6 +29,11 @@ $pick = Read-Host 'Number of the label printer (press Enter for the default prin
 $printer = ''
 if ($pick -match '^\d+$' -and [int]$pick -ge 1 -and [int]$pick -le $printers.Count) {
   $printer = $printers[[int]$pick - 1]
+} elseif ($pick) {
+  # Also accept the printer's name typed out (e.g. "TSC TE244").
+  $printer = $printers | Where-Object { $_ -eq $pick.Trim() -or $_ -like "*$($pick.Trim())*" } |
+    Select-Object -First 1
+  if (-not $printer) { throw "No printer called '$pick'. Run INSTALL.bat again and type its number." }
 }
 
 @{ appUrl = 'https://wacrm-zwrx-1.vercel.app'; secret = $secret; printer = $printer } |

@@ -487,3 +487,43 @@ export async function labelsToPrint(): Promise<LabelToPrint[]> {
 export async function markPrinted(orderId: string): Promise<void> {
   await updateOrderTags(orderId, [SR_TAGS.printed], []);
 }
+
+// ---------------------------------------------------------------- print claims
+//
+// Several laptops may run the print agent. Before printing, an agent
+// claims the label (atomic metafield write); only the winner prints. A
+// claim older than CLAIM_TTL_MS (agent crashed mid-print) can be taken
+// over, and a failed print releases its claim so another device retries.
+
+const CLAIM_KEY = 'label_print';
+const CLAIM_TTL_MS = 5 * 60 * 1000;
+
+async function deleteLabelClaim(orderId: string): Promise<void> {
+  await shopifyGraphql(
+    `mutation($m: [MetafieldIdentifierInput!]!) {
+      metafieldsDelete(metafields: $m) { userErrors { message } }
+    }`,
+    { m: [{ ownerId: orderGid(orderId), namespace: 'wacrm', key: CLAIM_KEY }] }
+  );
+}
+
+export async function claimLabel(orderId: string): Promise<boolean> {
+  if ((await claimOrderOnce(orderId, CLAIM_KEY)) === 'claimed') return true;
+  const data = await shopifyGraphql<{
+    order: { claim: { value: string } | null; tags: string[] } | null;
+  }>(
+    `query($id: ID!) { order(id: $id) { tags claim: metafield(namespace: "wacrm", key: "${CLAIM_KEY}") { value } } }`,
+    { id: orderGid(orderId) }
+  );
+  const o = data.order;
+  if (!o || o.tags.includes(SR_TAGS.printed)) return false;
+  const at = Date.parse(o.claim?.value ?? '');
+  if (Number.isFinite(at) && Date.now() - at < CLAIM_TTL_MS) return false;
+  // Stale claim — take it over.
+  await deleteLabelClaim(orderId);
+  return (await claimOrderOnce(orderId, CLAIM_KEY)) === 'claimed';
+}
+
+export async function releaseLabel(orderId: string): Promise<void> {
+  await deleteLabelClaim(orderId);
+}
