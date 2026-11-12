@@ -1,4 +1,4 @@
-# Hindrishi label print agent
+﻿# Hindrishi label print agent
 # Runs on the office laptop. Every 20 seconds it asks the CRM for new
 # Shiprocket labels, prints each PDF on the default printer, and marks
 # the order "Label-Printed" in Shopify so it never prints twice.
@@ -23,12 +23,15 @@ function Write-Log($msg) {
 }
 
 function Print-Pdf($file) {
+  # SumatraPDF is a windowed app: PowerShell doesn't wait for it with '&'
+  # (and $LASTEXITCODE stays empty), so start it and wait for the result.
   if ($config.printer) {
-    & $sumatra -print-to $config.printer -print-settings 'fit' -silent $file
+    $args = @('-print-to', "`"$($config.printer)`"", '-print-settings', 'fit', '-silent', "`"$file`"")
   } else {
-    & $sumatra -print-to-default -print-settings 'fit' -silent $file
+    $args = @('-print-to-default', '-print-settings', 'fit', '-silent', "`"$file`"")
   }
-  return $LASTEXITCODE -eq 0
+  $p = Start-Process -FilePath $sumatra -ArgumentList $args -Wait -PassThru -WindowStyle Hidden
+  return $p.ExitCode -eq 0
 }
 
 Write-Log "agent started (printer: $(if ($config.printer) { $config.printer } else { 'default' }))"
@@ -44,7 +47,7 @@ while ($true) {
           Invoke-RestMethod -Method Post -Uri "$($config.appUrl)/api/print/labels/$($label.orderId)" -Headers $headers -TimeoutSec 30 | Out-Null
           Write-Log "printed $($label.name)"
         } else {
-          Write-Log "PRINT FAILED $($label.name) — is the printer on?"
+          Write-Log "PRINT FAILED $($label.name) - is the printer on?"
         }
       } catch {
         Write-Log "error on $($label.name): $($_.Exception.Message)"
