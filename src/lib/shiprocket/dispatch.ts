@@ -1,10 +1,8 @@
 // Book a Shopify order in Shiprocket and get its label, ready to print.
 //
-// Triggers (all end up in dispatchOrder):
-//   * Razorpay payment recorded on the WhatsApp pay link (full or ₹100
-//     advance)                         → payment-received.ts
-//   * prepaid Shopify order created     → orders webhook
-//   * staff tag an order "RTD"          → /api/cron/shiprocket sweep
+// Trigger: ONLY staff tagging an order "RTD" (ready to dispatch) →
+// /api/cron/shiprocket sweep. Nothing ships or prints without that tag
+// (payments and prepaid orders no longer book automatically).
 //
 // Steps: find the order in Shiprocket (orders synced by the Shopify
 // channel are reused, otherwise it's created), set the right payment
@@ -29,6 +27,7 @@ import {
 } from '@/lib/shopify/admin-api';
 import {
   assignAwb,
+  cancelOrders,
   chooseCourier,
   createOrUpdateOrder,
   findOrders,
@@ -261,6 +260,7 @@ function matchShiprocketOrder(
   const ref = orderRef(o.name);
   return (
     orders.find((s) => {
+      if (/cancel/i.test(String(s.status ?? ''))) return false;
       const c = String(s.channel_order_id ?? '').replace(/^#/, '');
       return c === ref || c === o.id;
     }) ?? null
@@ -360,14 +360,18 @@ export async function dispatchOrder(
           Number(existing.total) === due));
 
     if (!existing || (!paymentOk && !existingAwb)) {
-      const payload = buildShiprocketPayload(
-        o,
-        pickup.pickup_location,
-        due,
-        existing ? String(existing.channel_order_id) : orderRef(o.name)
-      );
-      const res = await createOrUpdateOrder(payload, !!existing);
-      shipmentId = res.shipment_id ?? shipmentId;
+      // Shiprocket won't edit orders its Shopify channel synced ("Order
+      // doesn't exist" on update). If the synced copy has the wrong
+      // payment (e.g. full COD after a ₹100 advance, or COD after the
+      // customer paid online) and isn't booked yet, cancel it and create
+      // a correct one instead.
+      if (existing) {
+        await cancelOrders([existing.id]);
+        shipmentId = null;
+      }
+      const payload = buildShiprocketPayload(o, pickup.pickup_location, due);
+      const res = await createOrUpdateOrder(payload, false);
+      shipmentId = res.shipment_id ?? null;
       if (!shipmentId) {
         const again = matchShiprocketOrder(
           await findOrders(orderRef(o.name)),
@@ -439,7 +443,7 @@ export async function dispatchOrder(
 export async function findOrdersToDispatch(): Promise<string[]> {
   const since = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
   const q =
-    `(tag:'${SR_TAGS.rtd}' OR tag:'${SR_TAGS.pending}') -tag:'${SR_TAGS.ready}' ` +
+    `tag:'${SR_TAGS.rtd}' -tag:'${SR_TAGS.ready}' ` +
     `-tag:'${SR_TAGS.printed}' -tag:'${SR_TAGS.error}' status:open created_at:>='${since}'`;
   const data = await shopifyGraphql<{ orders: { nodes: { id: string }[] } }>(
     `query($q: String!) { orders(first: 50, query: $q, sortKey: CREATED_AT) { nodes { id } } }`,
