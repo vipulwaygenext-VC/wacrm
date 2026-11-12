@@ -270,18 +270,49 @@ export function buildShiprocketPayload(
   };
 }
 
+/** Shiprocket order ids belonging to this Shopify order: "63543",
+ *  "#63543", the Shopify id, or a rebooked "63543-R1", "63543-R2"… */
+export function isOurShiprocketId(
+  channelOrderId: unknown,
+  ref: string,
+  shopifyId: string
+): boolean {
+  const c = String(channelOrderId ?? '').replace(/^#/, '');
+  return c === ref || c === shopifyId || new RegExp(`^${ref}-R\\d+$`).test(c);
+}
+
 function matchShiprocketOrder(
   orders: SrOrder[],
   o: ShopifyOrderForShipping
 ): SrOrder | null {
   const ref = orderRef(o.name);
   return (
-    orders.find((s) => {
-      if (/cancel/i.test(String(s.status ?? ''))) return false;
-      const c = String(s.channel_order_id ?? '').replace(/^#/, '');
-      return c === ref || c === o.id;
-    }) ?? null
+    orders.find(
+      (s) =>
+        !/cancel/i.test(String(s.status ?? '')) &&
+        isOurShiprocketId(s.channel_order_id, ref, o.id)
+    ) ?? null
   );
+}
+
+/** Shiprocket reuses a cancelled order (and its dead AWB) when an order
+ *  is created again with the same id, so rebooks get "-R1", "-R2"… */
+export function nextShiprocketId(
+  ref: string,
+  all: SrOrder[],
+  shopifyId: string
+): string {
+  const ours = all.filter((s) =>
+    isOurShiprocketId(s.channel_order_id, ref, shopifyId)
+  );
+  if (!ours.length) return ref;
+  const n = Math.max(
+    0,
+    ...ours.map((s) =>
+      Number(/-R(\d+)$/.exec(String(s.channel_order_id))?.[1] ?? 0)
+    )
+  );
+  return `${ref}-R${n + 1}`;
 }
 
 /** Release the booking claim so a fixed order can be retried (an AWB
@@ -329,12 +360,11 @@ export async function dispatchOrder(
     // Cancel the current Shiprocket booking and start over (e.g. wrong
     // COD amount). Only cancels orders still in Shiprocket's pre-pickup states.
     const ref = orderRef(o.name);
-    const mine = (await findOrders(ref)).filter((s) => {
-      const c = String(s.channel_order_id ?? '').replace(/^#/, '');
-      return (
-        (c === ref || c === o!.id) && !/cancel/i.test(String(s.status ?? ''))
-      );
-    });
+    const mine = (await findOrders(ref)).filter(
+      (s) =>
+        isOurShiprocketId(s.channel_order_id, ref, o!.id) &&
+        !/cancel/i.test(String(s.status ?? ''))
+    );
     if (
       mine.some((s) => /picked|transit|deliver/i.test(String(s.status ?? '')))
     ) {
@@ -400,10 +430,8 @@ export async function dispatchOrder(
 
     // Reuse the order if the Shopify channel already synced it; give the
     // sync a few minutes before creating it ourselves (avoids duplicates).
-    const existing = matchShiprocketOrder(
-      await findOrders(orderRef(o.name)),
-      o
-    );
+    const srOrders = await findOrders(orderRef(o.name));
+    const existing = matchShiprocketOrder(srOrders, o);
     const age = Date.now() - new Date(o.createdAt).getTime();
     if (
       !existing &&
@@ -433,7 +461,12 @@ export async function dispatchOrder(
         await cancelOrders([existing.id]);
         shipmentId = null;
       }
-      const payload = buildShiprocketPayload(o, pickup.pickup_location, due);
+      const payload = buildShiprocketPayload(
+        o,
+        pickup.pickup_location,
+        due,
+        nextShiprocketId(orderRef(o.name), srOrders, o.id)
+      );
       const res = await createOrUpdateOrder(payload, false);
       shipmentId = res.shipment_id ?? null;
       if (!shipmentId) {
