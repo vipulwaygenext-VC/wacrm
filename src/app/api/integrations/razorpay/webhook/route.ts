@@ -7,7 +7,8 @@
 // Idempotent: a once-per-order claim makes retries no-ops.
 // ============================================================
 
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
+import { dispatchOrder } from '@/lib/shiprocket/dispatch'
 import { orderIdFromReference, verifyRazorpaySignature } from '@/lib/shopify/advance'
 import { recordRazorpayPayment } from '@/lib/shopify/payment-received'
 
@@ -24,6 +25,8 @@ interface PaymentLinkPaidEvent {
     payment?: { entity?: { id?: string; amount?: number } }
   }
 }
+
+export const maxDuration = 60
 
 export async function POST(request: Request) {
   const rawBody = await request.text()
@@ -59,6 +62,16 @@ export async function POST(request: Request) {
       amount: paise / 100,
       paymentId,
     })
+    if (outcome === 'recorded') {
+      // Paid → book the Shiprocket shipment and label after answering
+      // Razorpay (it retries slow webhooks).
+      after(async () => {
+        const r = await dispatchOrder(orderId, full ? 'paid online' : 'advance paid').catch(
+          (e) => (console.error('[shiprocket] dispatch after payment failed:', e), 'error')
+        )
+        console.log(`[shiprocket] order ${orderId} after payment: ${r}`)
+      })
+    }
     return NextResponse.json({ outcome })
   } catch (err) {
     console.error(`[razorpay] recording payment for order ${orderId} failed:`, err)
